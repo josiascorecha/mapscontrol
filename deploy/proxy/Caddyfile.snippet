@@ -1,0 +1,6 @@
+# Caddy no host: acrescente ao Caddyfile existente e rode `caddy reload`.
+# O Caddy emite o certificado HTTPS automaticamente.
+mapscontrol.j2bot.com.br {
+    encode gzip
+    reverse_proxy 127.0.0.1:8087
+}

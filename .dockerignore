@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/.dev-mail
+**/test-results
+**/playwright-report
+.git
+.env
+*.env
+!deploy/.env.example
+deploy/backups
+deploy/private
+android/**/build
+android/.gradle
+*.keystore
+*.jks

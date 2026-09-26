@@ -1,0 +1,7 @@
+{
+  "territorio": { "numero": 1, "nome": "Exemplo" },
+  "quadras": [
+    { "numero": 1, "link": "https://maps.app.goo.gl/EXEMPLO1", "lat": -25.4284, "lng": -49.2733 },
+    { "numero": 2, "link": "https://maps.app.goo.gl/EXEMPLO2" }
+  ]
+}

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mapscontrol
+          POSTGRES_PASSWORD: ci-somente-teste
+          POSTGRES_DB: mapscontrol_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mapscontrol" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://mapscontrol:ci-somente-teste@localhost:5432/mapscontrol_test
+      PGHOST: localhost
+      PGUSER: mapscontrol
+      PGPASSWORD: ci-somente-teste
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Verificar ausência de dados privados
+        run: bash scripts/check-public.sh
+      - name: Servidor — instalar, tipos, testes
+        working-directory: server
+        run: npm ci && npm run typecheck && npm test && npm run build
+      - name: Backup e restauração
+        run: sudo apt-get install -y postgresql-client && bash scripts/test-backup-restore.sh
+      - name: Web — build
+        working-directory: web
+        run: npm ci && npm run build
+      - name: E2E (celular e computador)
+        working-directory: web
+        env:
+          DATABASE_URL: postgres://mapscontrol:ci-somente-teste@localhost:5432/mapscontrol_test
+          CODE_PEPPER: ci-pepper-somente-teste-0123456789abcdef
+          MAIL_TRANSPORT: file
+          MAIL_FILE_DIR: /tmp/mc-mail
+          E2E_MAIL_DIR: /tmp/mc-mail
+          STATIC_DIR: ../web/dist
+          LOG_LEVEL: warn
+        run: |
+          npx playwright install --with-deps chromium
+          (cd ../server && node dist/server.js &) && sleep 3
+          npx playwright test

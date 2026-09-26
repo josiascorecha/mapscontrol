@@ -1,0 +1,47 @@
+name: Android (AAB)
+
+# Executado manualmente. Gera o Android App Bundle assinado com a CHAVE DE UPLOAD.
+# Segredos necessários (Settings > Secrets and variables > Actions):
+#   ANDROID_UPLOAD_KEYSTORE_B64  (keystore em base64)
+#   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+on:
+  workflow_dispatch:
+    inputs:
+      versionCode:
+        description: "versionCode (inteiro crescente)"
+        required: true
+      versionName:
+        description: "versionName (ex.: 0.1.0)"
+        required: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+      - name: Preparar keystore
+        run: |
+          echo "${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          echo "MC_KEYSTORE_PATH=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+      - name: Gerar AAB
+        working-directory: android
+        env:
+          MC_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MC_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MC_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon bundleRelease \
+            -Pmapscontrol.versionCode=${{ inputs.versionCode }} \
+            -Pmapscontrol.versionName=${{ inputs.versionName }}
+      - name: Remover keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mapscontrol-${{ inputs.versionName }}-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          retention-days: 14

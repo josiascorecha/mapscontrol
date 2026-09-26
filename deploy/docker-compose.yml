@@ -1,0 +1,82 @@
+# MapsControl — produção na VPS.
+# Uso (na pasta deploy/):  docker compose --env-file .env up -d --build
+# Projeto isolado ("mapscontrol"): nomes de containers, rede e volumes próprios,
+# sem portas públicas. A aplicação escuta só em 127.0.0.1:${APP_PORT}; o proxy
+# reverso existente na VPS (Nginx/Caddy/Traefik) encaminha o domínio para ela.
+name: mapscontrol
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mapscontrol-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mapscontrol
+      POSTGRES_USER: mapscontrol
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mapscontrol -d mapscontrol"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: mapscontrol-app:${APP_VERSION:-latest}
+    container_name: mapscontrol-app
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://mapscontrol:${POSTGRES_PASSWORD}@db:5432/mapscontrol
+      TRUST_PROXY: "true"
+    ports:
+      - "127.0.0.1:${APP_PORT:-8087}:3000"
+    networks: [internal]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  backup:
+    image: postgres:16-alpine
+    container_name: mapscontrol-backup
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGHOST: db
+      PGDATABASE: mapscontrol
+      PGUSER: mapscontrol
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup-loop.sh:/backup-loop.sh:ro
+    entrypoint: ["/bin/sh", "/backup-loop.sh"]
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+networks:
+  internal:
+    name: mapscontrol_internal
+
+volumes:
+  pgdata:
+    name: mapscontrol_pgdata
