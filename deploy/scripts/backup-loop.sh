@@ -11,7 +11,8 @@ run_backup() {
   out="$BACKUP_DIR/mapscontrol-$ts.dump"
   if pg_dump -Fc --no-owner --no-privileges -f "$tmp"; then
     mv "$tmp" "$out"
-    sha256sum "$out" > "$out.sha256"
+    # checksum com nome relativo: pode ser conferido tanto no container quanto no host
+    (cd "$BACKUP_DIR" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
     echo "$(date -Iseconds) backup ok: $(basename "$out") ($(du -h "$out" | cut -f1))"
   else
     rm -f "$tmp"
