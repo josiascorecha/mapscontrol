@@ -8,6 +8,16 @@ function tiles(map: L.Map, url: string, attribution: string) {
   L.tileLayer(url, { maxZoom: 19, attribution, referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(map);
 }
 
+/**
+ * A rodinha do mouse só dá zoom depois de clicar no mapa; ao sair com o mouse,
+ * volta a rolar a página. Toque (pinça) e os botões +/− não são afetados.
+ */
+function wheelZoomAfterClick(map: L.Map) {
+  map.scrollWheelZoom.disable();
+  map.on('click focus', () => map.scrollWheelZoom.enable());
+  map.on('mouseout blur', () => map.scrollWheelZoom.disable());
+}
+
 function numberIcon(n: number, cls = '') {
   return L.divIcon({ className: `block-marker ${cls}`, html: '', iconSize: [38, 38] });
 }
@@ -30,6 +40,7 @@ export function TerritoryMap({ blocks, onOpen }: { blocks: Block[]; onOpen: (b: 
   useEffect(() => {
     if (!ref.current || !config) return;
     const map = L.map(ref.current, { zoomControl: true, attributionControl: true });
+    wheelZoomAfterClick(map);
     tiles(map, config.tileUrl, config.tileAttribution);
     const pts = blocks.filter((b) => b.lat != null && b.lng != null);
     const group: L.LatLngExpression[] = [];
@@ -103,6 +114,7 @@ export function PickerMap({
   useEffect(() => {
     if (!ref.current || !config) return;
     const map = L.map(ref.current);
+    wheelZoomAfterClick(map);
     mapRef.current = map;
     tiles(map, config.tileUrl, config.tileAttribution);
     const pts: L.LatLngExpression[] = [];
