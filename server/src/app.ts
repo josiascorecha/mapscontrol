@@ -83,6 +83,9 @@ export async function buildApp(cfg: Config, db: Db, opts: { mailer?: Mailer; fet
     },
     hsts: cfg.cookieSecure ? { maxAge: 31536000, includeSubDomains: false } : false,
     crossOriginEmbedderPolicy: false,
+    // O servidor de mapas do OpenStreetMap bloqueia (403) requisições sem Referer.
+    // Envia só a origem (https://dominio), nunca o caminho da página.
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   });
 
   // Proteção CSRF: toda requisição que altera dados precisa vir da própria origem.

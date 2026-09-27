@@ -5,7 +5,7 @@ import type { Block } from '../api';
 import { useSession } from '../session';
 
 function tiles(map: L.Map, url: string, attribution: string) {
-  L.tileLayer(url, { maxZoom: 19, attribution }).addTo(map);
+  L.tileLayer(url, { maxZoom: 19, attribution, referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(map);
 }
 
 function numberIcon(n: number, cls = '') {
