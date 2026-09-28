@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, type Block, type Counts, type Territory } from '../api';
 import { PickerMap, TerritoryMap } from '../components/BlockMap';
 import { Icon } from '../components/Icon';
+import { InstallCard } from '../components/InstallCard';
 import { Layout } from '../components/Layout';
 import { Alert, ErrorAlert, Field, Loading, LoadError, Sheet, Stats, useAction, useLoad, useToast } from '../components/ui';
 import { plural } from '../util';
@@ -35,6 +36,7 @@ export function HomePage() {
       isAdmin={c?.isAdmin}
       viaGlobal={c?.viaGlobal}
     >
+      <InstallCard />
       {cong.error && !c ? (
         <LoadError error={cong.error} onRetry={cong.reload} />
       ) : !c ? (

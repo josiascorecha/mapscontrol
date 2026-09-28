@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { Icon } from '../components/Icon';
+import { InstallCard } from '../components/InstallCard';
 import { Layout } from '../components/Layout';
 import { Alert, ErrorAlert, Field, useAction, useToast } from '../components/ui';
 import { useSession } from '../session';
@@ -48,6 +49,8 @@ export function AccountPage() {
         </button>
       </div>
 
+      <InstallCard variant="section" />
+
       <div className="card">
         <h2>Aparência</h2>
         <div className="segmented" role="group" aria-label="Tema" style={{ ['--n' as string]: 3 }}>
@@ -78,7 +81,7 @@ export function AccountPage() {
         <h2>Trocar senha</h2>
         <ErrorAlert error={savePw.error} />
         <Field label="Senha atual"><input className="input" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></Field>
-        <Field label="Nova senha" hint="Pelo menos 10 caracteres."><input className="input" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
+        <Field label="Nova senha" hint="Pelo menos 6 caracteres, com letras e números."><input className="input" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
         <Field label="Repita a nova senha"><input className="input" type="password" autoComplete="new-password" value={pw.next2} onChange={(e) => setPw({ ...pw, next2: e.target.value })} /></Field>
         <button
           className="btn secondary block"

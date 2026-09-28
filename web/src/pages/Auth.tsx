@@ -141,7 +141,7 @@ export function SignupPage() {
           <Field label="E-mail">
             <input className="input" type="email" autoComplete="email" inputMode="email" required value={f.email} onChange={set('email')} />
           </Field>
-          <Field label="Senha" hint="Pelo menos 10 caracteres. Uma frase curta é fácil de lembrar.">
+          <Field label="Senha" hint="Pelo menos 6 caracteres, com letras e números.">
             <input className="input" type="password" autoComplete="new-password" required value={f.password} onChange={set('password')} />
           </Field>
           <Field label="Repita a senha">
@@ -298,7 +298,7 @@ export function NewPasswordPage({ activation = false }: { activation?: boolean }
             }}
           >
             <ErrorAlert error={error} />
-            <Field label="Nova senha" hint="Pelo menos 10 caracteres.">
+            <Field label="Nova senha" hint="Pelo menos 6 caracteres, com letras e números.">
               <input className="input" type="password" autoComplete="new-password" required value={pw} onChange={(e) => setPw(e.target.value)} />
             </Field>
             <Field label="Repita a nova senha">

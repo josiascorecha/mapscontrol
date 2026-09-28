@@ -13,8 +13,8 @@ if (cfg.NODE_ENV === 'production') {
   process.exit(1);
 }
 const pw = process.env.DEMO_PASSWORD;
-if (!pw || pw.length < 10) {
-  console.error('Defina DEMO_PASSWORD (mín. 10 caracteres) para os usuários de demonstração.');
+if (!pw || pw.length < 6) {
+  console.error('Defina DEMO_PASSWORD (mín. 6 caracteres, com letras e números) para os usuários de demonstração.');
   process.exit(1);
 }
 const db = createPool(cfg.DATABASE_URL);

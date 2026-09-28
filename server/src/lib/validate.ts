@@ -20,10 +20,22 @@ export const email = z
   .max(254, 'E-mail muito longo.')
   .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'E-mail inválido.');
 
+// Senhas muito comuns que atendem à regra mas são adivinhadas nas primeiras tentativas.
+const COMMON_PASSWORDS = new Set([
+  'abc123', 'abcd1234', 'a12345', 'a123456', '123abc', '1234abc', 'abc12345', 'qwerty1', 'qwe123',
+  'senha1', 'senha12', 'senha123', 'senha1234', 'mudar123', 'teste1', 'teste123', 'admin1', 'admin123',
+  'jesus1', 'jeova1', 'jeova123', 'brasil1', 'brasil123', 'mapas1', 'mapscontrol1', 'password1',
+]);
+
+// Regra combinada com o titular: mínimo 6 caracteres, com pelo menos uma letra e um número.
+// Símbolos são permitidos, mas não exigidos. Proteções complementares: limite de tentativas
+// de login por e-mail e por IP, e hash Argon2id.
 export const password = z
   .string({ message: 'Informe a senha.' })
-  .min(10, 'A senha precisa ter pelo menos 10 caracteres.')
-  .max(200, 'Senha muito longa.');
+  .min(6, 'A senha precisa ter pelo menos 6 caracteres.')
+  .max(200, 'Senha muito longa.')
+  .refine((v) => /[A-Za-zÀ-ÿ]/.test(v) && /\d/.test(v), { message: 'A senha precisa ter letras e números.' })
+  .refine((v) => !COMMON_PASSWORDS.has(v.toLowerCase()), { message: 'Essa senha é muito comum. Escolha outra.' });
 
 export const personName = z.string({ message: 'Informe o nome.' }).trim().min(2, 'Informe o nome.').max(120, 'Nome muito longo.');
 

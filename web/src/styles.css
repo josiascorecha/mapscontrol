@@ -346,3 +346,6 @@ table.simple td, table.simple th { text-align: left; padding: 8px 6px; border-bo
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+.install-card { border-color: var(--soft-border); background: var(--soft); }
+.install-logo svg { width: 44px; height: 44px; display: block; }
