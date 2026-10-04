@@ -22,6 +22,7 @@
     "@node-rs/argon2": "^2.2.1",
     "fastify": "^5.12.5",
     "nodemailer": "^10.0.10",
+    "pdfkit": "^0.17.2",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
     "undici": "^8.11.2",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/nodemailer": "^8.0.2",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",

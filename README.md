@@ -23,6 +23,9 @@ O controle em papel tem vários problemas:
   - **Com carta:** carta deixada, com a data da carta. A pendência continua até haver conversa.
   - **Contato realizado:** mostra a data da conversa. Cartas ou ausências registradas depois **não apagam** o contato.
 - **Histórico imutável:** cada registro guarda ação, data, autor e observação. Um registro errado é *anulado* (continua visível, riscado), nunca apagado.
+- **Ordem de cadastro:** casas, prédios e apartamentos aparecem na ordem em que foram cadastrados, que é a ordem do percurso na quadra, e não em ordem alfanumérica.
+- **Correção de número:** quem cadastrou, ou um administrador, corrige o número da casa, do prédio ou do apartamento. O histórico e a posição na lista são mantidos, e a alteração fica na auditoria.
+- **PDF da quadra:** gera um PDF para imprimir ou compartilhar, com resumo, situação, datas e observações de cada endereço, e uma coluna em branco para anotar à mão no campo.
 - **Prédios:**
   - cadastro de apartamentos em lote (por andares ou por lista), com revisão antes de salvar;
   - bloco ou torre opcional;

@@ -20,6 +20,7 @@ export function RecordSheet({
   onClose,
   onSaved,
   onHistory,
+  onEdit,
 }: {
   cid: string;
   addressId: string;
@@ -29,6 +30,8 @@ export function RecordSheet({
   onClose: () => void;
   onSaved: () => void;
   onHistory?: () => void;
+  /** Abre a correção do número (casa) ou do apartamento. */
+  onEdit?: () => void;
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const [date, setDate] = useState(todayLocal());
@@ -73,6 +76,11 @@ export function RecordSheet({
       <button className="btn block" disabled={!action || busy} onClick={save}>
         {busy ? 'Salvando…' : action ? 'Salvar registro' : 'Escolha uma opção acima'}
       </button>
+      {onEdit && (
+        <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onEdit}>
+          <Icon name="edit" /> Corrigir número
+        </button>
+      )}
       {onHistory && (
         <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onHistory}>
           <Icon name="history" /> Ver histórico

@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError, type AddressRow, type Status, type Unit, type VisitRecord } from '../api';
 import { Icon } from '../components/Icon';
 import { Layout } from '../components/Layout';
@@ -78,6 +78,14 @@ export function BlockPage() {
           <button className="btn block" style={{ marginTop: 14 }} onClick={() => setAdding(true)}>
             <Icon name="plus" /> Cadastrar casa ou prédio
           </button>
+          <a
+            className="btn secondary block"
+            style={{ marginTop: 10 }}
+            href={`/api/congregations/${cid}/blocks/${bid}/pdf`}
+            download={b ? `territorio-${b.territory_number}-quadra-${b.number}.pdf` : undefined}
+          >
+            <Icon name="copy" /> Gerar PDF da quadra
+          </a>
           <div className="section-title"><h2>Endereços</h2></div>
           <div className="tabs" role="group" aria-label="Filtro">
             {(
@@ -152,6 +160,7 @@ export function BlockPage() {
             d.reload();
           }}
           onHistory={() => nav(`/c/${cid}/e/${recording.id}`)}
+          onEdit={() => nav(`/c/${cid}/e/${recording.id}?editar=1`)}
         />
       )}
     </Layout>
@@ -248,6 +257,17 @@ export function AddressPage() {
   const d = useLoad(() => api.get<AddressData>(`/congregations/${cid}/addresses/${aid}`), [cid, aid]);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [record, setRecord] = useState<{ unit?: Unit } | null>(null);
+  const [editAddr, setEditAddr] = useState(false);
+  const [editUnit, setEditUnit] = useState<Unit | null>(null);
+  const [params, setParams] = useSearchParams();
+  // Vindo de "Corrigir número" na lista da quadra: abre a correção direto.
+  const wantsEdit = params.get('editar') === '1';
+  useEffect(() => {
+    if (!wantsEdit || !d.data) return;
+    setParams({}, { replace: true });
+    if (d.data.canEdit) setEditAddr(true);
+    else toast('Só quem cadastrou ou um administrador pode corrigir o número.');
+  }, [wantsEdit, d.data, setParams, toast]);
   const [addUnits, setAddUnits] = useState(false);
   const [filter, setFilter] = useState<'all' | Status>('all');
   const del = useAction();
@@ -275,6 +295,11 @@ export function AddressPage() {
             {a.notes && <p className="small muted" style={{ margin: '8px 0 0' }}>Obs.: {a.notes}</p>}
           </div>
           <button className="btn block" style={{ marginTop: 14 }} onClick={() => setRecord({})}>Registrar visita</button>
+          {d.data.canEdit && (
+            <button className="btn secondary block" style={{ marginTop: 10 }} onClick={() => setEditAddr(true)}>
+              <Icon name="edit" /> Corrigir número ou observação
+            </button>
+          )}
           <History cid={cid} aid={aid} key={`h-${d.data.status?.status}-${d.data.status?.last_contact_on}-${d.data.status?.last_letter_on}`} onChanged={d.reload} />
         </>
       ) : unit ? (
@@ -289,6 +314,11 @@ export function AddressPage() {
             {unit.last_letter_on && <p style={{ margin: '4px 0 0' }}>Carta em <b>{fmtDate(unit.last_letter_on)}</b></p>}
           </div>
           <button className="btn block" style={{ marginTop: 14 }} onClick={() => setRecord({ unit })}>Registrar visita</button>
+          {d.data.canEdit && (
+            <button className="btn secondary block" style={{ marginTop: 10 }} onClick={() => setEditUnit(unit)}>
+              <Icon name="edit" /> Corrigir apartamento
+            </button>
+          )}
           <History cid={cid} aid={aid} unitId={unit.id} key={`${unit.id}-${unit.status}-${unit.last_letter_on}-${unit.last_contact_on}`} onChanged={async () => {
             const fresh = await api.get<AddressData>(`/congregations/${cid}/addresses/${aid}`);
             setUnit(fresh.units.find((u) => u.id === unit.id) ?? null);
@@ -316,6 +346,11 @@ export function AddressPage() {
           <div className="card">
             <Stats c={{ pending: d.data.units.filter((u) => u.status === 'pending').length, letter: d.data.units.filter((u) => u.status === 'letter').length, contacted: d.data.units.filter((u) => u.status === 'contacted').length, total: d.data.units.length }} />
             <p className="small muted" style={{ margin: '10px 0 0' }}>Número {a.number}{a.street ? ` · ${a.street}` : ''}{a.notes ? ` · Obs.: ${a.notes}` : ''}</p>
+            {d.data.canEdit && (
+              <button className="btn ghost small" style={{ marginTop: 8 }} onClick={() => setEditAddr(true)}>
+                <Icon name="edit" /> Editar prédio
+              </button>
+            )}
           </div>
           <div className="section-title">
             <h2>Apartamentos</h2>
@@ -416,6 +451,41 @@ export function AddressPage() {
                 }
               : undefined
           }
+          onEdit={
+            d.data?.canEdit
+              ? () => {
+                  const u = record.unit;
+                  setRecord(null);
+                  if (u) setEditUnit(u);
+                  else setEditAddr(true);
+                }
+              : undefined
+          }
+        />
+      )}
+      {editAddr && a && (
+        <EditAddressSheet
+          cid={cid}
+          address={a}
+          onClose={() => setEditAddr(false)}
+          onSaved={() => {
+            setEditAddr(false);
+            d.reload();
+          }}
+        />
+      )}
+      {editUnit && (
+        <EditUnitSheet
+          cid={cid}
+          unit={editUnit}
+          onClose={() => setEditUnit(null)}
+          onSaved={async () => {
+            const id = editUnit.id;
+            setEditUnit(null);
+            const fresh = await api.get<AddressData>(`/congregations/${cid}/addresses/${aid}`).catch(() => null);
+            if (fresh && unit) setUnit(fresh.units.find((u) => u.id === id) ?? null);
+            d.reload();
+          }}
         />
       )}
       {addUnits && (
@@ -430,6 +500,82 @@ export function AddressPage() {
         />
       )}
     </Layout>
+  );
+}
+
+function EditAddressSheet({ cid, address, onClose, onSaved }: { cid: string; address: AddressData['address']; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ number: address.number, street: address.street ?? '', name: address.name ?? '', notes: address.notes ?? '' });
+  const { busy, error, run } = useAction();
+  const toast = useToast();
+  const isBuilding = address.kind === 'building';
+  return (
+    <Sheet title={isBuilding ? 'Editar prédio' : 'Corrigir casa'} onClose={onClose}>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const ok = await run(() =>
+            api.patch(`/congregations/${cid}/addresses/${address.id}`, {
+              number: f.number, street: f.street || null, name: isBuilding ? f.name || null : null, notes: f.notes || null,
+            }),
+          );
+          if (ok) {
+            toast('Endereço corrigido');
+            onSaved();
+          }
+        }}
+      >
+        <Alert kind="info">O histórico de visitas é mantido e a posição na lista não muda.</Alert>
+        <ErrorAlert error={error} />
+        <div className="grid2" style={{ gridTemplateColumns: '120px 1fr' }}>
+          <Field label="Número">
+            <input className="input" required autoFocus maxLength={20} value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} />
+          </Field>
+          <Field label="Rua (opcional)">
+            <input className="input" maxLength={120} value={f.street} onChange={(e) => setF({ ...f, street: e.target.value })} />
+          </Field>
+        </div>
+        {isBuilding && (
+          <Field label="Nome do prédio (opcional)">
+            <input className="input" maxLength={120} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          </Field>
+        )}
+        <Field label="Observação (opcional)" hint="Só informações práticas. Não anote dados pessoais dos moradores.">
+          <input className="input" maxLength={500} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+        </Field>
+        <button className="btn block" disabled={busy || !f.number.trim()}>{busy ? 'Salvando…' : 'Salvar correção'}</button>
+      </form>
+    </Sheet>
+  );
+}
+
+function EditUnitSheet({ cid, unit, onClose, onSaved }: { cid: string; unit: Unit; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ tower: unit.tower, identifier: unit.identifier });
+  const { busy, error, run } = useAction();
+  const toast = useToast();
+  return (
+    <Sheet title={`Corrigir apto ${unitLabel(unit)}`} onClose={onClose}>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (await run(() => api.patch(`/congregations/${cid}/units/${unit.id}`, { tower: f.tower.trim(), identifier: f.identifier.trim() }))) {
+            toast('Apartamento corrigido');
+            onSaved();
+          }
+        }}
+      >
+        <Alert kind="info">O histórico de visitas do apartamento é mantido.</Alert>
+        <ErrorAlert error={error} />
+        <div className="grid2">
+          <Field label="Bloco/Torre (opcional)">
+            <input className="input" maxLength={30} value={f.tower} onChange={(e) => setF({ ...f, tower: e.target.value })} />
+          </Field>
+          <Field label="Número do apto">
+            <input className="input" required autoFocus maxLength={20} value={f.identifier} onChange={(e) => setF({ ...f, identifier: e.target.value })} />
+          </Field>
+        </div>
+        <button className="btn block" disabled={busy || !f.identifier.trim()}>{busy ? 'Salvando…' : 'Salvar correção'}</button>
+      </form>
+    </Sheet>
   );
 }
 

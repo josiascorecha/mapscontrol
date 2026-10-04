@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { audit } from '../lib/audit.js';
 import { withTx } from '../lib/db.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { buildBlockPdf, fmtDate, type PdfRow } from '../lib/blockPdf.js';
 import { googleMapsUrl } from '../lib/maps.js';
 import { requireAccess } from '../lib/session.js';
 import { isoDate, operationalNote, optionalText, parse, uuid } from '../lib/validate.js';
@@ -63,7 +64,7 @@ export async function fieldRoutes(app: FastifyInstance) {
            SELECT ${STATUS_COUNTS} FROM target_status ts WHERE ts.address_id = a.id AND ts.unit_id IS NOT NULL
          ) us ON a.kind = 'building'
         WHERE a.block_id = $1 AND a.congregation_id = $2
-        ORDER BY a.street NULLS FIRST, NULLIF(regexp_replace(a.number, '\\D', '', 'g'), '')::bigint NULLS LAST, a.number`,
+        ORDER BY a.seq`, // ordem de cadastro (percurso na quadra)
       [bid, cid],
     );
     const block = b.rows[0];
@@ -72,6 +73,102 @@ export async function fieldRoutes(app: FastifyInstance) {
       isAdmin: acc.isAdmin,
       addresses: rows,
     };
+  });
+
+  // PDF da quadra (ordem de cadastro, situação, datas e observações)
+  app.get('/congregations/:cid/blocks/:bid/pdf', async (req, reply) => {
+    const { cid, bid } = parse(PB, req.params);
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const b = await db.query(
+      `SELECT b.number, b.name, b.maps_url, b.lat, b.lng, t.number AS territory_number, t.name AS territory_name, c.name AS congregation
+         FROM blocks b JOIN territories t ON t.id = b.territory_id JOIN congregations c ON c.id = b.congregation_id
+        WHERE b.id = $1 AND b.congregation_id = $2`,
+      [bid, cid],
+    );
+    const blk = b.rows[0];
+    if (!blk) throw notFound();
+    const addrs = await db.query(
+      `SELECT a.id, a.kind, a.number, a.street, a.name, a.notes,
+              hs.status, hs.last_contact_on, hs.last_letter_on, hs.last_absent_on
+         FROM addresses a
+         LEFT JOIN target_status hs ON hs.address_id = a.id AND hs.unit_id IS NULL AND a.kind = 'house'
+        WHERE a.block_id = $1 AND a.congregation_id = $2
+        ORDER BY a.seq`,
+      [bid, cid],
+    );
+    const units = await db.query(
+      `SELECT u.id, u.address_id, u.tower, u.identifier, ts.status, ts.last_contact_on, ts.last_letter_on, ts.last_absent_on
+         FROM units u JOIN addresses a ON a.id = u.address_id JOIN target_status ts ON ts.unit_id = u.id
+        WHERE a.block_id = $1 AND a.congregation_id = $2
+        ORDER BY u.seq`,
+      [bid, cid],
+    );
+    const notes = await db.query(
+      `SELECT v.address_id, v.unit_id, v.occurred_on, v.note
+         FROM visit_records v JOIN addresses a ON a.id = v.address_id
+        WHERE a.block_id = $1 AND v.congregation_id = $2 AND v.voided_at IS NULL AND v.note IS NOT NULL
+        ORDER BY v.occurred_on, v.created_at`,
+      [bid, cid],
+    );
+    const noteMap = new Map<string, string[]>();
+    for (const n of notes.rows) {
+      const k = `${n.address_id}|${n.unit_id ?? ''}`;
+      if (!noteMap.has(k)) noteMap.set(k, []);
+      noteMap.get(k)!.push(`${fmtDate(n.occurred_on).slice(0, 5)}: ${n.note}`);
+    }
+    const rows: PdfRow[] = [];
+    const totals = { pending: 0, letter: 0, contacted: 0, total: 0 };
+    const count = (st: 'pending' | 'letter' | 'contacted') => {
+      totals[st]++;
+      totals.total++;
+    };
+    for (const a of addrs.rows) {
+      const own = noteMap.get(`${a.id}|`) ?? [];
+      const base = a.notes ? [a.notes, ...own] : own;
+      if (a.kind === 'house') {
+        count(a.status);
+        rows.push({
+          kind: 'house', label: a.number, status: a.status,
+          lastContactOn: a.last_contact_on, lastLetterOn: a.last_letter_on, lastAbsentOn: a.last_absent_on,
+          notes: a.street ? [a.street, ...base] : base,
+        });
+      } else {
+        const us = units.rows.filter((u) => u.address_id === a.id);
+        const c = { pending: 0, letter: 0, contacted: 0 } as Record<string, number>;
+        us.forEach((u) => c[u.status]++);
+        rows.push({
+          kind: 'building', label: `Prédio ${a.number}`, status: null, lastContactOn: null, lastLetterOn: null, lastAbsentOn: null,
+          notes: [a.name, a.street, ...base].filter(Boolean) as string[],
+          summary: `${us.length} apto(s): ${c.pending} pend. · ${c.letter} carta · ${c.contacted} contato`,
+        });
+        for (const u of us) {
+          count(u.status);
+          rows.push({
+            kind: 'unit', label: u.tower ? `${u.tower} · ${u.identifier}` : `Apto ${u.identifier}`, status: u.status,
+            lastContactOn: u.last_contact_on, lastLetterOn: u.last_letter_on, lastAbsentOn: u.last_absent_on,
+            notes: noteMap.get(`${a.id}|${u.id}`) ?? [],
+          });
+        }
+      }
+    }
+    const pdf = await buildBlockPdf({
+      congregation: blk.congregation,
+      territoryNumber: blk.territory_number,
+      territoryName: blk.territory_name,
+      blockNumber: blk.number,
+      blockName: blk.name,
+      mapsUrl: blk.lat != null ? googleMapsUrl(blk.lat, blk.lng) : blk.maps_url,
+      generatedBy: acc.user.name,
+      generatedAt: new Date(),
+      rows,
+      totals,
+    });
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.pdf', entity: 'block', entityId: bid });
+    const filename = `territorio-${blk.territory_number}-quadra-${blk.number}.pdf`;
+    return reply
+      .header('content-type', 'application/pdf')
+      .header('content-disposition', `attachment; filename="${filename}"`)
+      .send(pdf);
   });
 
   // Cadastro de casa (padrão) ou prédio com apartamentos
@@ -115,7 +212,7 @@ export async function fieldRoutes(app: FastifyInstance) {
         `SELECT u.id, u.tower, u.identifier, ts.status, ts.last_contact_on, ts.last_letter_on, ts.last_absent_on
            FROM units u JOIN target_status ts ON ts.unit_id = u.id
           WHERE u.address_id = $1 AND u.congregation_id = $2
-          ORDER BY u.tower, NULLIF(regexp_replace(u.identifier, '\\D', '', 'g'), '')::bigint NULLS LAST, u.identifier`,
+          ORDER BY u.seq`,
         [aid, cid],
       );
       units = r.rows;
@@ -137,10 +234,19 @@ export async function fieldRoutes(app: FastifyInstance) {
     const address = await getAddress(cid, aid);
     if (!acc.isAdmin && address.created_by !== acc.user.id) throw forbidden('Só quem cadastrou ou um administrador pode editar.');
     const body = parse(addressBody.omit({ kind: true, units: true }), req.body);
+    const dup = await db.query(
+      `SELECT 1 FROM addresses WHERE block_id=$1 AND kind=$2 AND id<>$3 AND lower(number)=lower($4) AND coalesce(lower(street),'') = coalesce(lower($5),'')`,
+      [address.block_id, address.kind, aid, body.number, body.street],
+    );
+    if (dup.rowCount) throw conflict(`Já existe ${address.kind === 'house' ? 'uma casa' : 'um prédio'} com o número ${body.number} nesta quadra.`, 'DUPLICATE');
+    // A posição na lista (ordem de cadastro) não muda ao corrigir o número.
     await db.query(`UPDATE addresses SET number=$3, street=$4, name=$5, notes=$6 WHERE id=$1 AND congregation_id=$2`, [
       aid, cid, body.number, body.street, address.kind === 'building' ? body.name : null, body.notes,
     ]);
-    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'address.update', entity: 'address', entityId: aid });
+    await audit(db, {
+      actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'address.update', entity: 'address', entityId: aid,
+      details: address.number !== body.number ? { numberFrom: address.number, numberTo: body.number } : {},
+    });
     return { ok: true };
   });
 
@@ -163,6 +269,32 @@ export async function fieldRoutes(app: FastifyInstance) {
     const result = await withTx(db, (tx) => insertUnits(tx, cid, aid, body.units));
     await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'unit.create_bulk', entity: 'address', entityId: aid, details: { created: result.created } });
     return reply.status(201).send(result);
+  });
+
+  // Correção de apartamento (bloco/torre e número). Mantém o histórico e a posição na lista.
+  app.patch('/congregations/:cid/units/:uid', async (req) => {
+    const { cid, uid } = parse(P.extend({ uid: uuid }), req.params);
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const body = parse(unitItem, req.body);
+    const u = await db.query(
+      `SELECT u.address_id, u.tower, u.identifier, a.created_by FROM units u JOIN addresses a ON a.id = u.address_id
+        WHERE u.id = $1 AND u.congregation_id = $2`,
+      [uid, cid],
+    );
+    const row = u.rows[0];
+    if (!row) throw notFound();
+    if (!acc.isAdmin && row.created_by !== acc.user.id) throw forbidden('Só quem cadastrou o prédio ou um administrador pode editar.');
+    const dup = await db.query(
+      `SELECT 1 FROM units WHERE address_id=$1 AND id<>$2 AND tower=$3 AND lower(identifier)=lower($4)`,
+      [row.address_id, uid, body.tower, body.identifier],
+    );
+    if (dup.rowCount) throw conflict('Já existe um apartamento com esse número neste prédio.', 'DUPLICATE');
+    await db.query('UPDATE units SET tower=$3, identifier=$4 WHERE id=$1 AND congregation_id=$2', [uid, cid, body.tower, body.identifier]);
+    await audit(db, {
+      actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'unit.update', entity: 'unit', entityId: uid,
+      details: { from: `${row.tower} ${row.identifier}`.trim(), to: `${body.tower} ${body.identifier}`.trim() },
+    });
+    return { ok: true };
   });
 
   app.delete('/congregations/:cid/units/:uid', async (req) => {
@@ -255,7 +387,7 @@ export async function fieldRoutes(app: FastifyInstance) {
               t.id AS territory_id, t.number AS territory_number, s.pending, s.letter, s.contacted, s.total,
               COALESCE((
                 SELECT json_agg(json_build_object('id', u.id, 'tower', u.tower, 'identifier', u.identifier, 'lastLetterOn', ts.last_letter_on)
-                                ORDER BY u.tower, u.identifier)
+                                ORDER BY u.seq)
                   FROM units u JOIN target_status ts ON ts.unit_id = u.id
                  WHERE u.address_id = a.id AND ts.status = 'letter'), '[]') AS letter_units
          FROM addresses a
@@ -263,7 +395,7 @@ export async function fieldRoutes(app: FastifyInstance) {
          JOIN territories t ON t.id = b.territory_id
          LEFT JOIN LATERAL (SELECT ${STATUS_COUNTS} FROM target_status ts WHERE ts.address_id = a.id) s ON true
         WHERE a.congregation_id = $1 AND a.kind = 'building'
-        ORDER BY t.number, b.number, a.number`,
+        ORDER BY t.number, b.number, a.seq`,
       [cid],
     );
     // Casas com carta pendente também aparecem no filtro de cartas.
@@ -272,7 +404,7 @@ export async function fieldRoutes(app: FastifyInstance) {
          FROM addresses a JOIN target_status ts ON ts.address_id = a.id AND ts.unit_id IS NULL
          JOIN blocks b ON b.id = a.block_id JOIN territories t ON t.id = b.territory_id
         WHERE a.congregation_id = $1 AND a.kind = 'house' AND ts.status = 'letter'
-        ORDER BY t.number, b.number, a.number`,
+        ORDER BY t.number, b.number, a.seq`,
       [cid],
     );
     const buildings = q.onlyLetters === '1' ? rows.filter((r) => r.letter > 0) : rows;
