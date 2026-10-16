@@ -8,7 +8,7 @@ fun prop(name: String): String = providers.gradleProperty(name).get()
 val host = prop("mapscontrol.host")
 
 android {
-    namespace = "br.com.j2bot.mapscontrol"
+    namespace = "br.com.j2ia.mapscontrol"
     compileSdk = 36
 
     defaultConfig {

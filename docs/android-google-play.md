@@ -18,7 +18,8 @@ O MapsControl não usa recursos nativos. Por isso a TWA entrega a mesma experiê
 ## Projeto (`android/`)
 
 - Biblioteca `com.google.androidbrowserhelper:androidbrowserhelper:2.7.3`.
-- `applicationId` padrão: `br.com.j2bot.mapscontrol`. **Confirme antes da primeira publicação:** ele não pode mudar depois.
+- `applicationId` padrão: `br.com.j2ia.mapscontrol` (trocado de `br.com.j2bot.mapscontrol` na mudança de domínio, antes de qualquer publicação). **Confirme antes da primeira publicação:** ele não pode mudar depois.
+- O app abre o endereço principal (`mapscontrol.host`). Se o domínio mudar depois da publicação, publique uma versão nova com o host novo e mantenha o `assetlinks.json` nos dois endereços até todos atualizarem.
 - `compileSdk`/`targetSdk` 36 e `minSdk` 23. AGP 8.13.0 com Gradle 8.14.3 (wrapper incluído) e JDK 17.
 - Host, versão e identificador ficam em `android/gradle.properties`.
 - Assinatura **somente por variáveis de ambiente** (`MC_KEYSTORE_PATH`, `MC_KEYSTORE_PASSWORD`, `MC_KEY_ALIAS`, `MC_KEY_PASSWORD`). Nenhuma chave vai para o repositório.
@@ -56,7 +57,7 @@ O MapsControl não usa recursos nativos. Por isso a TWA entrega a mesma experiê
 1. No Play Console, abra *Configuração → Integridade do app → Assinatura do app* e copie a **impressão digital SHA-256 da chave de assinatura do app**. Se for testar APKs assinados localmente, copie também a da chave de upload.
 2. No `.env` da VPS:
    ```
-   ANDROID_PACKAGE=br.com.j2bot.mapscontrol
+   ANDROID_PACKAGE=br.com.j2ia.mapscontrol
    ANDROID_CERT_SHA256=AA:BB:…,CC:DD:…
    ```
 3. Rode `bash scripts/deploy.sh` e confira `https://mapscontrol.SEU-DOMINIO/.well-known/assetlinks.json`.

@@ -7,7 +7,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=NOME_DA_REDE_DO_TRAEFIK
-      - traefik.http.routers.mapscontrol.rule=Host(`mapscontrol.j2bot.com.br`)
+      - traefik.http.routers.mapscontrol.rule=Host(`mapscontrol.j2ia.com.br`)
       - traefik.http.routers.mapscontrol.entrypoints=websecure
       - traefik.http.routers.mapscontrol.tls.certresolver=NOME_DO_RESOLVER
       - traefik.http.services.mapscontrol.loadbalancer.server.port=3000

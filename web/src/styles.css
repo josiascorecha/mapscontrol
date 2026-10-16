@@ -205,6 +205,18 @@ textarea.input { min-height: 88px; resize: vertical; }
 .alert.info { background: var(--soft); border-color: var(--soft-border); color: var(--soft-fg); }
 .alert.warn { background: var(--warn-100); border-color: var(--alert-warn-border); color: var(--alert-warn-fg); }
 
+.address-notice {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 12px 16px 0; padding: 12px 14px; border-radius: 12px;
+  background: var(--warn-100); color: var(--alert-warn-fg); border: 1px solid var(--alert-warn-border);
+  font-size: .92rem; line-height: 1.4;
+}
+.auth-wrap .address-notice { margin: 0 0 16px; }
+.address-notice svg { width: 22px; height: 22px; flex: none; margin-top: 1px; }
+.address-notice p { margin: 0 0 6px; }
+.address-notice strong { overflow-wrap: anywhere; }
+.address-notice .btn { margin-top: 4px; text-decoration: none; }
+
 .offline-banner { position: sticky; top: 58px; z-index: 999; background: #3f3e4a; color: #fff; text-align: center; padding: 8px 16px; font-size: .9rem; font-weight: 600; }
 
 .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--soft-border); border-top-color: var(--primary); animation: spin .8s linear infinite; margin: 24px auto; }

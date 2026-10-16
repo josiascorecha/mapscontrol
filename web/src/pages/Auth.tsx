@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
+import { useIsNewAddress } from '../components/AddressNotice';
 import { Logo } from '../components/Icon';
 import { AuthShell } from '../components/Layout';
 import { Alert, ErrorAlert, Field, useAction } from '../components/ui';
@@ -29,6 +30,7 @@ export function LoginPage() {
   const { busy, error, run } = useAction();
   const [needsVerify, setNeedsVerify] = useState(false);
   const [resent, setResent] = useState(false);
+  const isNewAddress = useIsNewAddress();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -53,6 +55,7 @@ export function LoginPage() {
       <Brand />
       <div className="card">
         <h1>Entrar</h1>
+        {isNewAddress && <Alert>Este é o novo endereço do MapsControl. Entre com o mesmo e-mail e senha de antes.</Alert>}
         <form onSubmit={submit} noValidate>
           <ErrorAlert error={error} />
           {needsVerify && (

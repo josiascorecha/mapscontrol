@@ -54,7 +54,13 @@ export interface Me {
   wasRevoked: boolean;
   needsConsent: boolean;
 }
-export interface AppConfig { termsVersion: string; privacyVersion: string; tileUrl: string; tileAttribution: string; contactEmail: string }
+export interface AppConfig {
+  termsVersion: string; privacyVersion: string; tileUrl: string; tileAttribution: string; contactEmail: string;
+  /** Endereço principal (ex.: https://mapscontrol.exemplo.com.br). */
+  appOrigin?: string;
+  /** Data (AAAA-MM-DD) em que o endereço antigo passa a redirecionar; null sem mudança. */
+  addressChangeDate?: string | null;
+}
 export interface Territory extends Partial<Counts> { id: string; number: number; name: string | null; notes: string | null; blocks?: number }
 export interface Block extends Partial<Counts> {
   id: string; number: number; name: string | null; maps_url: string | null; lat: number | null; lng: number | null;

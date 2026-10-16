@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useSession } from '../session';
+import { AddressNotice } from './AddressNotice';
 import { Icon } from './Icon';
 import { useOnline } from './ui';
 
@@ -52,6 +53,7 @@ export function Layout({ title, subtitle, cid, back, isAdmin, viaGlobal, actions
           Sem internet. Nada será salvo até a conexão voltar.
         </div>
       )}
+      <AddressNotice />
       {viaGlobal && (
         <div className="global-banner">
           Você está vendo esta congregação como Administrador Geral. Suas ações ficam registradas. <Link to="/geral">Trocar</Link>
@@ -75,7 +77,10 @@ export function AuthShell({ children }: { children: ReactNode }) {
   return (
     <>
       {!online && <div className="offline-banner" style={{ top: 0 }}>Sem internet no momento.</div>}
-      <div className="auth-wrap">{children}</div>
+      <div className="auth-wrap">
+        <AddressNotice />
+        {children}
+      </div>
     </>
   );
 }

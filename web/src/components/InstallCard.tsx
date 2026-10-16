@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { canPromptInstall, isStandalone, onInstallChange, platform, promptInstall } from '../install';
+import { useOldAddress } from './AddressNotice';
 import { Logo } from './Icon';
 
 const KEY = 'mc-install-dismissed';
@@ -22,8 +23,10 @@ export function InstallCard({ variant = 'banner' }: { variant?: 'banner' | 'sect
   const [hidden, setHidden] = useState(() => variant === 'banner' && dismissed());
   const [help, setHelp] = useState(false);
   useEffect(() => onInstallChange(() => force((n) => n + 1)), []);
+  // No endereço antigo não convida a instalar: o app instalado ficaria preso a ele.
+  const oldAddress = useOldAddress();
 
-  if (isStandalone() || hidden) return null;
+  if (isStandalone() || hidden || oldAddress) return null;
   const p = platform();
   const canPrompt = canPromptInstall();
 

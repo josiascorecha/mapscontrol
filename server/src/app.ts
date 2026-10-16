@@ -88,12 +88,13 @@ export async function buildApp(cfg: Config, db: Db, opts: { mailer?: Mailer; fet
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   });
 
-  // Proteção CSRF: toda requisição que altera dados precisa vir da própria origem.
+  // Proteção CSRF: toda requisição que altera dados precisa vir da própria origem
+  // (o endereço principal ou, durante uma mudança de domínio, o endereço antigo).
   app.addHook('onRequest', async (req) => {
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return;
     if (!req.url.startsWith('/api/')) return;
     const origin = req.headers.origin;
-    if (origin !== cfg.APP_ORIGIN) {
+    if (!origin || !cfg.allowedOrigins.includes(origin)) {
       throw new HttpError(403, 'BAD_ORIGIN', 'Origem da requisição não permitida.');
     }
   });
@@ -135,6 +136,9 @@ export async function buildApp(cfg: Config, db: Db, opts: { mailer?: Mailer; fet
     tileUrl: cfg.TILE_URL,
     tileAttribution: cfg.TILE_ATTRIBUTION,
     contactEmail: cfg.CONTACT_EMAIL,
+    // Endereço principal do sistema. Quem acessa por outro endereço vê o aviso de mudança.
+    appOrigin: cfg.APP_ORIGIN,
+    addressChangeDate: cfg.ADDRESS_CHANGE_DATE ?? null,
   }));
 
   // Digital Asset Links para o aplicativo Android (TWA).

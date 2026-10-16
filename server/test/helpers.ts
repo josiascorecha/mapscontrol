@@ -10,7 +10,7 @@ import { migrate } from '../src/lib/migrate.js';
 export const ORIGIN = 'http://localhost:3000';
 export const TEST_DB = process.env.TEST_DATABASE_URL ?? 'postgres://mapscontrol:devpass@localhost:5432/mapscontrol_test';
 
-export function testConfig(): Config {
+export function testConfig(env: Record<string, string> = {}): Config {
   return loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: TEST_DB,
@@ -18,6 +18,7 @@ export function testConfig(): Config {
     CODE_PEPPER: 'pepper-de-teste-com-mais-de-32-caracteres!!',
     MAIL_TRANSPORT: 'memory',
     LOG_LEVEL: 'silent',
+    ...env,
   });
 }
 
@@ -36,9 +37,9 @@ export interface Ctx {
   close(): Promise<void>;
 }
 
-export async function startApp(opts: { reset?: boolean; fetcher?: Fetcher } = {}): Promise<Ctx> {
+export async function startApp(opts: { reset?: boolean; fetcher?: Fetcher; env?: Record<string, string> } = {}): Promise<Ctx> {
   if (opts.reset !== false) await resetDb();
-  const cfg = testConfig();
+  const cfg = testConfig(opts.env);
   const db = createPool(TEST_DB);
   await migrate(db);
   const mailer = createMailer(cfg);

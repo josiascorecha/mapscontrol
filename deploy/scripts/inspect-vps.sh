@@ -2,7 +2,7 @@
 # Inspeção SOMENTE LEITURA da VPS antes da implantação. Não altera nada.
 # Uso:  bash inspect-vps.sh > inspecao.txt   (depois envie o arquivo para revisão)
 # O relatório não inclui variáveis de ambiente nem segredos dos containers.
-DOMAIN="${1:-mapscontrol.j2bot.com.br}"
+DOMAIN="${1:-mapscontrol.j2ia.com.br}"
 PORT_WANTED="${2:-8087}"
 sec() { printf '\n===== %s =====\n' "$1"; }
 

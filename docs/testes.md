@@ -17,6 +17,8 @@
 | 13 | Nenhuma credencial ou dado real no material público | `scripts/check-public.sh` (também no CI) | `bash scripts/check-public.sh` |
 | 14 | Backup e restauração verificáveis | `scripts/test-backup-restore.sh` (dump → apaga o banco → restaura → compara); `deploy/scripts/verify-backup.sh` na VPS | ver README |
 
+Mudança de domínio: `server/test/domain-change.test.ts` (endereço antigo aceito durante a transição, outras origens recusadas, links de e-mail sempre no endereço novo, validação da configuração) e `web/e2e/mudanca-endereco.spec.ts` (aviso só no endereço antigo, botão com o mesmo caminho, sem convite para instalar no endereço antigo). O script `deploy/scripts/mudar-dominio.sh` foi exercitado com Nginx real e Certbot simulado (adicionar → redirecionar → desfazer).
+
 Outros testes: autenticação (confirmação obrigatória, anti-enumeração, Argon2id, recuperação de senha que encerra sessões, logout no servidor, cookie HttpOnly/SameSite), exclusão de conta com anonimização, CSRF por Origin, resolução segura de links do Maps (domínios, IPs internos, limite de redirecionamentos, "não inventa coordenadas").
 
 ## Última execução (ambiente de desenvolvimento, 26/09/2026)

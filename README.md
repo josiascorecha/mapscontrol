@@ -128,6 +128,8 @@ Guia completo em [docs/implantacao-vps.md](docs/implantacao-vps.md). O guia cobr
 - configuração do Administrador Geral;
 - backup, verificação e restauração.
 
+Para trocar o domínio sem tirar o sistema do ar (aviso no app, os dois endereços funcionando e depois redirecionamento), veja [docs/mudanca-de-dominio.md](docs/mudanca-de-dominio.md).
+
 ## Limitações e próximos passos
 
 - **Não verificado neste ambiente:**
