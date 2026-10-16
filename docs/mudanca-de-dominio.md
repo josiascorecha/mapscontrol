@@ -71,7 +71,8 @@ bash scripts/mudar-dominio.sh email antigo.com.br novo.com.br
 
 - Para cada caixa do domínio antigo, cria no domínio novo um apelido com o mesmo nome antes do @. As mensagens caem na mesma caixa, e a senha e o login continuam os mesmos.
 - Gera a chave DKIM do domínio novo e mostra o registro TXT para criar no DNS.
-- Reinicia o container de e-mail, o que leva cerca de 30 s.
+- Se o DNS de `mail.novo.com.br` já aponta para a VPS, inclui esse nome no certificado do servidor de e-mail e roda o hook que copia o certificado para o container.
+- Reinicia o container de e-mail uma vez, o que leva cerca de 30 s. Rodar de novo não repete o que já foi feito.
 
 Registros DNS do domínio novo para o e-mail:
 
@@ -87,8 +88,11 @@ Registros DNS do domínio novo para o e-mail:
 
 ```bash
 nohup bash scripts/mudar-dominio.sh redirecionar antigo.com.br novo.com.br \
-  --excluir api.antigo.com.br,mail.antigo.com.br > /root/mudar-dominio.log 2>&1 &
+  --excluir api.antigo.com.br,mail.antigo.com.br \
+  --manter-caminhos /webhook,/deploy > /root/mudar-dominio.log 2>&1 &
 ```
+
+- Com `--manter-caminhos`, os caminhos listados continuam funcionando no endereço antigo. O pedido é repassado, por dentro do próprio Nginx, ao mesmo caminho do endereço novo, com corpo e cabeçalhos (assinaturas incluídas). Use isso para webhooks de pagamento, de deploy e de mensagens. O caminho só é mantido nos nomes cujo site atual tem esse `location`.
 
 - Tira os nomes antigos dos sites e cria `/etc/nginx/sites-available/redirecionar-antigo.com.br` com um `301` por nome. O `301` fica em `location /`, para que o desafio do Let's Encrypt continue tendo prioridade.
 - Ajusta os redirecionamentos internos (ex.: `www` → raiz) para o domínio novo.
