@@ -5,17 +5,20 @@
 #   bash mudar-dominio.sh inspecionar  ANTIGO NOVO
 #   bash mudar-dominio.sh adicionar    ANTIGO NOVO [--excluir h1,h2] [--simular]
 #   bash mudar-dominio.sh email        ANTIGO NOVO [--simular]
-#   bash mudar-dominio.sh redirecionar ANTIGO NOVO [--excluir h1,h2] [--simular]
+#   bash mudar-dominio.sh redirecionar ANTIGO NOVO [--excluir h1,h2] [--manter-caminhos /p1,/p2] [--simular]
 #   bash mudar-dominio.sh desfazer     /root/backup-dominio-AAAAMMDD-HHMMSS.tgz
 #
 # inspecionar   só lê: sites, nomes, DNS dos nomes novos, certificados e e-mail.
 # adicionar     cada site de ANTIGO passa a responder TAMBÉM pelo nome equivalente em NOVO
 #               (www.antigo → www.novo). Os certificados são ampliados para os nomes novos.
 #               Só entram nomes cujo DNS já aponta para esta VPS. Nada sai do ar.
-# email         endereços @NOVO como apelidos das caixas @ANTIGO (mesma caixa, mesma senha)
-#               e chave DKIM do NOVO. Reinicia o container de e-mail (≈30 s).
+# email         endereços @NOVO como apelidos das caixas @ANTIGO (mesma caixa, mesma senha),
+#               chave DKIM do NOVO e, se o DNS de mail.NOVO já aponta para cá, inclui
+#               mail.NOVO no certificado do servidor de e-mail. Reinicia o container (≈30 s).
 # redirecionar  os nomes antigos passam a responder 301 para os novos. A renovação dos
 #               certificados continua funcionando (o desafio do Let's Encrypt tem prioridade).
+#               --manter-caminhos: caminhos que continuam funcionando no endereço antigo
+#               (ex.: /webhook chamado por serviços de pagamento, que não seguem 301).
 # desfazer      volta /etc/nginx e /etc/letsencrypt ao backup indicado.
 #
 # --excluir     nomes antigos que ficam de fora (ex.: uma API que recebe POST de terceiros).
@@ -49,10 +52,11 @@ esac
 OLD="${2:-}"; NEW="${3:-}"
 [[ -n "$OLD" && -n "$NEW" && "$OLD" != "$NEW" ]] || { echo "Informe ANTIGO e NOVO (ex.: antigo.com.br novo.com.br)." >&2; exit 2; }
 shift 3
-EXCLUDE=""; SIMULATE=0
+EXCLUDE=""; SIMULATE=0; KEEP_PATHS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --excluir) EXCLUDE="${2:-}"; shift 2 ;;
+    --manter-caminhos) KEEP_PATHS="${2:-}"; shift 2 ;;
     --simular) SIMULATE=1; shift ;;
     *) echo "Opção desconhecida: $1" >&2; exit 2 ;;
   esac
@@ -169,7 +173,12 @@ run_hooks() { # $1 = nome do certificado
   local name="$1" doms
   doms=$(awk -F'\t' -v n="$name" '$1==n{print $3}' "$WORK/certs.tsv")
   export RENEWED_LINEAGE="/etc/letsencrypt/live/$name" RENEWED_DOMAINS="$doms"
-  if [[ -d /etc/letsencrypt/renewal-hooks/deploy ]]; then run-parts --verbose /etc/letsencrypt/renewal-hooks/deploy || true; fi
+  # Como o certbot faz: todo executável da pasta (o run-parts do Debian pularia nomes com ".sh").
+  local h
+  for h in /etc/letsencrypt/renewal-hooks/deploy/*; do
+    [[ -f "$h" && -x "$h" ]] || continue
+    echo "   hook: $(basename "$h")"; "$h" || echo "   !! o hook $(basename "$h") falhou" >&2
+  done
   local hook; hook=$(awk -F' = ' '/^renew_hook/{print $2}' "/etc/letsencrypt/renewal/$name.conf" 2>/dev/null || true)
   if [[ -n "$hook" ]]; then echo "   hook do certificado: $hook"; bash -c "$hook" || true; fi
 }
@@ -274,11 +283,51 @@ email)
     [[ $SIMULATE == 1 ]] || docker exec "$C" setup alias add "$alias" "$box"
   done 3< "$WORK/boxes.txt"
 
+  # Certificado do servidor de e-mail: inclui mail.NOVO (os programas de e-mail e o MX novo usam esse nome).
+  MAILC=$(awk -F'\t' -v h="mail.$OLD" '{n=split($3,a," "); for(i=1;i<=n;i++) if(a[i]==h){print $1; exit}}' "$WORK/certs.tsv")
+  MAILCMD=()
+  if [[ -n "$MAILC" ]]; then
+    mdoms=$(awk -F'\t' -v c="$MAILC" '$1==c{print $3}' "$WORK/certs.tsv")
+    mktype=$(awk -F'\t' -v c="$MAILC" '$1==c{print $2}' "$WORK/certs.tsv")
+    if [[ " $mdoms " == *" mail.$NEW "* ]]; then
+      echo "== Certificado $MAILC já inclui mail.$NEW"
+    elif ! getent ahostsv4 "mail.$NEW" | awk '{print $1}' | grep -qx "${MY_IP:-x}"; then
+      echo "== DNS de mail.$NEW ainda não aponta para ${MY_IP:-esta VPS}: o certificado fica para depois (rode 'email' de novo)."
+    else
+      MAILCMD=(certbot certonly --nginx --non-interactive --agree-tos --cert-name "$MAILC" --expand -d "$(echo $mdoms mail.$NEW | tr ' ' ',')")
+      [[ -n "$mktype" ]] && MAILCMD+=(--key-type "$mktype")
+    fi
+  fi
+
   echo "== DKIM de $NEW"
-  if [[ $SIMULATE == 1 ]]; then echo "  (simulação) docker exec $C setup config dkim domain $NEW && docker restart $C"; exit 0; fi
-  docker exec "$C" setup config dkim domain "$NEW"
-  echo "  reiniciando $C para ativar a assinatura…"; docker restart "$C" >/dev/null
-  KEYFILE=$(docker exec "$C" sh -c "ls /tmp/docker-mailserver/opendkim/keys/$NEW/*.txt /tmp/docker-mailserver/rspamd/dkim/*$NEW*.txt 2>/dev/null | head -1" || true)
+  if [[ $SIMULATE == 1 ]]; then
+    echo "  (simulação) docker exec $C setup config dkim domain $NEW"
+    [[ ${#MAILCMD[@]} -gt 0 ]] && echo "  (simulação) ${MAILCMD[*]}  + hooks de renovação"
+    echo "  (simulação) docker restart $C"; exit 0
+  fi
+  keyfile() { docker exec "$C" sh -c "ls /tmp/docker-mailserver/opendkim/keys/$NEW/*.txt /tmp/docker-mailserver/rspamd/dkim/*$NEW*.txt 2>/dev/null | head -1" || true; }
+  NEED_RESTART=0
+  if [[ -n "$(keyfile)" ]]; then
+    echo "  a chave DKIM de $NEW já existe"
+  else
+    docker exec "$C" setup config dkim domain "$NEW"; NEED_RESTART=1
+  fi
+  if [[ ${#MAILCMD[@]} -gt 0 ]]; then
+    echo "== Ampliando o certificado $MAILC para mail.$NEW"
+    if "${MAILCMD[@]}"; then
+      certs
+      if [[ -n "$(ls /etc/letsencrypt/renewal-hooks/deploy/ 2>/dev/null)" ]]; then
+        run_hooks "$MAILC"; NEED_RESTART=0 # o hook de cópia do certificado reinicia o container
+      else
+        echo "  !! Não há hook que copie o certificado para o servidor de e-mail: copie à mão." >&2
+      fi
+    else
+      echo "  !! Falhou ao ampliar $MAILC. O e-mail continua com o certificado atual." >&2
+    fi
+  fi
+  if [[ $NEED_RESTART == 1 ]]; then echo "  reiniciando $C para ativar a assinatura…"; docker restart "$C" >/dev/null; fi
+  sleep 5
+  KEYFILE=$(keyfile)
   if [[ -n "$KEYFILE" ]]; then
     SEL=$(basename "$KEYFILE" .txt); SEL="${SEL%%-*}"; [[ "$SEL" == rsa* ]] && SEL=mail
     VAL=$(docker exec "$C" cat "$KEYFILE" | python3 -c "import re,sys; print(''.join(re.findall(r'\"([^\"]*)\"', sys.stdin.read())))")
@@ -305,10 +354,59 @@ redirecionar)
 
   V6=0; grep -Rqs 'listen \[::\]:443' /etc/nginx/sites-enabled/ && V6=1
   RF="/etc/nginx/sites-available/redirecionar-$OLD"
+
+  # Caminhos mantidos: só para os nomes cujo bloco HTTPS atual tem esse "location".
+  : > "$WORK/keep.tsv"
+  if [[ -n "$KEEP_PATHS" ]]; then
+    python3 - "$(cut -f1 "$WORK/selected.tsv" | paste -sd,)" "$KEEP_PATHS" > "$WORK/keep.tsv" <<'PY'
+import glob, os, re, sys
+hosts = set(sys.argv[1].split(',')); keep = [p.strip() for p in sys.argv[2].split(',') if p.strip()]
+files = sorted({os.path.realpath(f) for f in glob.glob('/etc/nginx/sites-enabled/*') + glob.glob('/etc/nginx/conf.d/*.conf')})
+def blocks(txt):
+    for m in re.finditer(r'(?m)^\s*server\s*\{', txt):
+        j, depth = m.end(), 1
+        while j < len(txt) and depth:
+            c = txt[j]
+            if c == '#':
+                k = txt.find('\n', j); j = len(txt) if k < 0 else k; continue
+            if c in '"\'':
+                k = txt.find(c, j + 1); j = len(txt) if k < 0 else k + 1; continue
+            depth += (c == '{') - (c == '}'); j += 1
+        yield txt[m.end():j - 1]
+seen = set()
+for f in files:
+    if os.path.basename(f).startswith('redirecionar-'): continue
+    for b in blocks(open(f, encoding='utf-8', errors='replace').read()):
+        if not re.search(r'listen\s+[^;]*443', b): continue
+        names = set(sum((x.split() for x in re.findall(r'server_name\s+([^;]+);', b)), []))
+        locs = set(re.findall(r'(?m)^\s*location\s+(?:[=~^*]+\s+)?(\S+)\s*\{', b))
+        for h in sorted(hosts & names):
+            for p in keep:
+                if p in locs and (h, p) not in seen:
+                    seen.add((h, p)); print(f"{h}\t{p}")
+PY
+    if [[ -s "$WORK/keep.tsv" ]]; then echo "== Continuam funcionando no endereço antigo:"; sed 's/\t/  /; s/^/  /' "$WORK/keep.tsv"; fi
+  fi
+
   {
     echo "# Gerado por mudar-dominio.sh em $(date -Is): $OLD → $NEW"
     echo "# O desafio do Let's Encrypt (location exata do certbot) continua tendo prioridade."
     while IFS=$'\t' read -r h n cert; do
+      kept=""
+      while IFS=$'\t' read -r kh kp; do
+        [[ "$kh" == "$h" ]] || continue
+        kept+="    # Continua funcionando aqui: serviços externos (webhooks) não seguem 301.
+    location ^~ $kp {
+        proxy_pass https://127.0.0.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $n;
+        proxy_set_header Host $n;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }
+"
+      done < "$WORK/keep.tsv"
       cat <<EOF
 server {
     listen 80;$([[ $V6 == 1 ]] && printf '\n    listen [::]:80;')
@@ -321,7 +419,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/$cert/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$cert/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
-    location / { return 301 https://$n\$request_uri; }
+${kept}    location / { return 301 https://$n\$request_uri; }
 }
 EOF
     done < "$WORK/selected.tsv"
