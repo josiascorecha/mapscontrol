@@ -234,6 +234,9 @@ textarea.input { min-height: 88px; resize: vertical; }
 .chip.active { background: var(--soft); color: var(--soft-fg); border: 1px solid var(--soft-border); }
 .chip.used { background: var(--ok-100); color: var(--ok-700); }
 .chip.admin { background: var(--selected-bg); color: #fff; }
+.pending-item { display: grid; }
+.pending-item > .btn { justify-self: start; margin: 0 14px 12px 72px; }
+.chip.unconfirmed { background: var(--warn-100); color: var(--alert-warn-fg); border: 1px solid var(--alert-warn-border); font-size: .74rem; padding: 1px 8px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.pending { background: var(--dot-pending); }
 .dot.letter { background: var(--accent-700); }

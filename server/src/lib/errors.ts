@@ -9,7 +9,7 @@ export class HttpError extends Error {
 }
 
 export const notFound = (msg = 'Não encontrado.') => new HttpError(404, 'NOT_FOUND', msg);
-export const forbidden = (msg = 'Você não tem permissão para esta ação.') => new HttpError(403, 'FORBIDDEN', msg);
+export const forbidden = (msg = 'Você não tem permissão para esta ação.', code = 'FORBIDDEN') => new HttpError(403, code, msg);
 export const badRequest = (msg: string, code = 'BAD_REQUEST') => new HttpError(400, code, msg);
 export const conflict = (msg: string, code = 'CONFLICT') => new HttpError(409, code, msg);
 export const unauthorized = (msg = 'Entre na sua conta para continuar.') => new HttpError(401, 'UNAUTHENTICATED', msg);

@@ -61,16 +61,27 @@ export interface AppConfig {
   /** Data (AAAA-MM-DD) em que o endereço antigo passa a redirecionar; null sem mudança. */
   addressChangeDate?: string | null;
 }
-export interface Territory extends Partial<Counts> { id: string; number: number; name: string | null; notes: string | null; blocks?: number }
+export interface Territory extends Partial<Counts> {
+  id: string; number: number; name: string | null; notes: string | null; blocks?: number;
+  /** false = cadastrado por publicador, aguardando confirmação do administrador */
+  confirmed?: boolean;
+  /** O servidor diz se este usuário pode excluir (administrador, ou quem cadastrou enquanto não confirmado). */
+  can_delete?: boolean;
+}
 export interface Block extends Partial<Counts> {
   id: string; number: number; name: string | null; maps_url: string | null; lat: number | null; lng: number | null;
   googleMapsUrl: string | null; buildings?: number;
+  confirmed?: boolean; can_delete?: boolean;
 }
 export interface AddressRow extends Partial<Counts> {
   id: string; kind: 'house' | 'building'; number: string; street: string | null; name: string | null; notes: string | null;
   status: Status | null; last_contact_on: string | null; last_letter_on: string | null; last_absent_on: string | null;
+  can_delete?: boolean;
 }
-export interface Unit { id: string; tower: string; identifier: string; status: Status; last_contact_on: string | null; last_letter_on: string | null; last_absent_on: string | null }
+export interface Unit {
+  id: string; tower: string; identifier: string; status: Status; last_contact_on: string | null; last_letter_on: string | null; last_absent_on: string | null;
+  can_delete?: boolean;
+}
 export interface VisitRecord {
   id: string; action: 'contact' | 'letter' | 'absent'; occurred_on: string; note: string | null; created_at: string;
   voided_at: string | null; void_reason: string | null; author_name: string | null; canVoid: boolean;

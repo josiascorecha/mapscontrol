@@ -63,23 +63,22 @@ describe('5. publicador não acessa outra congregação', () => {
 });
 
 describe('6. publicador não executa funções administrativas', () => {
-  it('bloqueia estrutura, membros e códigos', async () => {
+  it('bloqueia exclusão de estrutura confirmada, confirmação, membros e códigos', async () => {
     const c = pubA.c;
     const cid = A.cid;
     const checks = [
-      await c.post(`/api/congregations/${cid}/territories`, { number: 99 }),
-      await c.patch(`/api/congregations/${cid}/territories/${A.tid}`, { number: 5 }),
       await c.del(`/api/congregations/${cid}/territories/${A.tid}`),
-      await c.post(`/api/congregations/${cid}/territories/${A.tid}/blocks`, { number: 50 }),
-      await c.patch(`/api/congregations/${cid}/blocks/${A.bid}`, { number: 51 }),
       await c.del(`/api/congregations/${cid}/blocks/${A.bid}`),
+      await c.post(`/api/congregations/${cid}/territories/${A.tid}/confirm`),
+      await c.post(`/api/congregations/${cid}/blocks/${A.bid}/confirm`),
+      await c.get(`/api/congregations/${cid}/pending`),
+      await c.post(`/api/congregations/${cid}/pending/confirm-all`),
       await c.get(`/api/congregations/${cid}/codes`),
       await c.post(`/api/congregations/${cid}/codes`, {}),
       await c.get(`/api/congregations/${cid}/members`),
       await c.post(`/api/congregations/${cid}/members/${pubA.membershipId}/role`, { role: 'admin' }),
       await c.patch(`/api/congregations/${cid}`, { name: 'X' }),
       await c.get(`/api/congregations/${cid}/audit`),
-      await c.post(`/api/congregations/${cid}/maps/resolve`, { url: 'https://maps.app.goo.gl/x' }),
       await c.get('/api/global/congregations'),
     ];
     for (const r of checks) expect(r.status).toBe(403);

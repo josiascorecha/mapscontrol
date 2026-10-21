@@ -4,7 +4,10 @@ import { audit } from '../lib/audit.js';
 import { withTx } from '../lib/db.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { buildBlockPdf, fmtDate, type PdfRow } from '../lib/blockPdf.js';
+import { buildCardsPdf } from '../lib/cardsPdf.js';
+import { loadCardBlocks } from '../lib/cardsData.js';
 import { googleMapsUrl } from '../lib/maps.js';
+import { addressOwnDeletableSql, assertCanDeleteAddress, assertCanDeleteUnit, blockOwnDeletableSql, unitOwnDeletableSql } from '../lib/ownership.js';
 import { requireAccess } from '../lib/session.js';
 import { isoDate, operationalNote, optionalText, parse, uuid } from '../lib/validate.js';
 import { STATUS_COUNTS } from './congregations.js';
@@ -48,16 +51,18 @@ export async function fieldRoutes(app: FastifyInstance) {
     const { cid, bid } = parse(PB, req.params);
     const acc = await requireAccess(db, req, cid, 'publisher');
     const b = await db.query(
-      `SELECT b.id, b.number, b.name, b.maps_url, b.lat, b.lng, b.territory_id, t.number AS territory_number, t.name AS territory_name
+      `SELECT b.id, b.number, b.name, b.maps_url, b.lat, b.lng, b.territory_id, t.number AS territory_number, t.name AS territory_name,
+              b.confirmed_at IS NOT NULL AS confirmed, ($4 OR ${blockOwnDeletableSql('b', '$3')}) AS can_delete
          FROM blocks b JOIN territories t ON t.id = b.territory_id
         WHERE b.id = $1 AND b.congregation_id = $2`,
-      [bid, cid],
+      [bid, cid, acc.user.id, acc.isAdmin],
     );
     if (!b.rows[0]) throw notFound();
     const { rows } = await db.query(
       `SELECT a.id, a.kind, a.number, a.street, a.name, a.notes,
               hs.status, hs.last_contact_on, hs.last_letter_on, hs.last_absent_on,
-              us.pending, us.letter, us.contacted, us.total
+              us.pending, us.letter, us.contacted, us.total,
+              ($4 OR ${addressOwnDeletableSql('a', '$3')}) AS can_delete
          FROM addresses a
          LEFT JOIN target_status hs ON hs.address_id = a.id AND hs.unit_id IS NULL AND a.kind = 'house'
          LEFT JOIN LATERAL (
@@ -65,7 +70,7 @@ export async function fieldRoutes(app: FastifyInstance) {
          ) us ON a.kind = 'building'
         WHERE a.block_id = $1 AND a.congregation_id = $2
         ORDER BY a.seq`, // ordem de cadastro (percurso na quadra)
-      [bid, cid],
+      [bid, cid, acc.user.id, acc.isAdmin],
     );
     const block = b.rows[0];
     return {
@@ -171,6 +176,40 @@ export async function fieldRoutes(app: FastifyInstance) {
       .send(pdf);
   });
 
+  // ---------------- Fichas para recorte (modelo da congregação) ----------------
+
+  function sendPdf(reply: import('fastify').FastifyReply, pdf: Buffer, filename: string) {
+    return reply
+      .header('content-type', 'application/pdf')
+      .header('content-disposition', `attachment; filename="${filename}"`)
+      .send(pdf);
+  }
+
+  app.get('/congregations/:cid/blocks/:bid/pdf-recorte', async (req, reply) => {
+    const { cid, bid } = parse(PB, req.params);
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const cards = await loadCardBlocks(db, cid, [bid]);
+    if (!cards.length) throw notFound();
+    const c = cards[0];
+    const pdf = await buildCardsPdf(cards, { title: `Território ${c.territoryNumber} · Quadra ${c.blockNumber}`, generatedAt: new Date() });
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.pdf_cards', entity: 'block', entityId: bid });
+    return sendPdf(reply, pdf, `recorte-territorio-${c.territoryNumber}-quadra-${c.blockNumber}.pdf`);
+  });
+
+  app.get('/congregations/:cid/territories/:tid/pdf-recorte', async (req, reply) => {
+    const { cid, tid } = parse(P.extend({ tid: uuid }), req.params);
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const t = await db.query('SELECT number FROM territories WHERE id = $1 AND congregation_id = $2', [tid, cid]);
+    if (!t.rows[0]) throw notFound();
+    const ids = await db.query('SELECT id FROM blocks WHERE territory_id = $1 AND congregation_id = $2', [tid, cid]);
+    if (!ids.rowCount) throw badRequest('Este território ainda não tem quadras.', 'NO_BLOCKS');
+    const cards = await loadCardBlocks(db, cid, ids.rows.map((r) => r.id));
+    const n = t.rows[0].number;
+    const pdf = await buildCardsPdf(cards, { title: `Território ${n}`, generatedAt: new Date() });
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'territory.pdf_cards', entity: 'territory', entityId: tid });
+    return sendPdf(reply, pdf, `recorte-territorio-${n}.pdf`);
+  });
+
   // Cadastro de casa (padrão) ou prédio com apartamentos
   app.post('/congregations/:cid/blocks/:bid/addresses', async (req, reply) => {
     const { cid, bid } = parse(PB, req.params);
@@ -209,11 +248,12 @@ export async function fieldRoutes(app: FastifyInstance) {
     let status = null;
     if (address.kind === 'building') {
       const r = await db.query(
-        `SELECT u.id, u.tower, u.identifier, ts.status, ts.last_contact_on, ts.last_letter_on, ts.last_absent_on
-           FROM units u JOIN target_status ts ON ts.unit_id = u.id
+        `SELECT u.id, u.tower, u.identifier, ts.status, ts.last_contact_on, ts.last_letter_on, ts.last_absent_on,
+                ($4 OR ${unitOwnDeletableSql('u', 'a', '$3')}) AS can_delete
+           FROM units u JOIN target_status ts ON ts.unit_id = u.id JOIN addresses a ON a.id = u.address_id
           WHERE u.address_id = $1 AND u.congregation_id = $2
           ORDER BY u.seq`,
-        [aid, cid],
+        [aid, cid, acc.user.id, acc.isAdmin],
       );
       units = r.rows;
     } else {
@@ -224,8 +264,11 @@ export async function fieldRoutes(app: FastifyInstance) {
       status = r.rows[0];
     }
     const canEdit = acc.isAdmin || address.created_by === acc.user.id;
+    const del = acc.isAdmin
+      ? true
+      : (await db.query(`SELECT ${addressOwnDeletableSql('a', '$2')} AS ok FROM addresses a WHERE a.id = $1`, [aid, acc.user.id])).rows[0]?.ok === true;
     delete address.created_by;
-    return { address, status, units, isAdmin: acc.isAdmin, canEdit };
+    return { address, status, units, isAdmin: acc.isAdmin, canEdit, canDelete: del };
   });
 
   app.patch('/congregations/:cid/addresses/:aid', async (req) => {
@@ -250,11 +293,16 @@ export async function fieldRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Administrador exclui qualquer endereço; quem cadastrou exclui o seu, se não houver visitas de outras pessoas.
   app.delete('/congregations/:cid/addresses/:aid', async (req) => {
     const { cid, aid } = parse(PA, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
-    const r = await db.query('DELETE FROM addresses WHERE id=$1 AND congregation_id=$2 RETURNING number, kind', [aid, cid]);
-    if (!r.rowCount) throw notFound();
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const r = await withTx(db, async (tx) => {
+      const exists = await tx.query('SELECT 1 FROM addresses WHERE id=$1 AND congregation_id=$2 FOR UPDATE', [aid, cid]);
+      if (!exists.rowCount) throw notFound();
+      if (!acc.isAdmin) await assertCanDeleteAddress(tx, aid, acc.user.id);
+      return tx.query('DELETE FROM addresses WHERE id=$1 AND congregation_id=$2 RETURNING number, kind', [aid, cid]);
+    });
     await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'address.delete', entity: 'address', entityId: aid, details: r.rows[0] });
     return { ok: true };
   });
@@ -299,9 +347,13 @@ export async function fieldRoutes(app: FastifyInstance) {
 
   app.delete('/congregations/:cid/units/:uid', async (req) => {
     const { cid, uid } = parse(P.extend({ uid: uuid }), req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
-    const r = await db.query('DELETE FROM units WHERE id=$1 AND congregation_id=$2 RETURNING address_id', [uid, cid]);
-    if (!r.rowCount) throw notFound();
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const r = await withTx(db, async (tx) => {
+      const exists = await tx.query('SELECT 1 FROM units WHERE id=$1 AND congregation_id=$2 FOR UPDATE', [uid, cid]);
+      if (!exists.rowCount) throw notFound();
+      if (!acc.isAdmin) await assertCanDeleteUnit(tx, uid, acc.user.id);
+      return tx.query('DELETE FROM units WHERE id=$1 AND congregation_id=$2 RETURNING address_id', [uid, cid]);
+    });
     await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'unit.delete', entity: 'unit', entityId: uid });
     return { ok: true };
   });

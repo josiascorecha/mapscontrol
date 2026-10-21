@@ -21,6 +21,7 @@ export function RecordSheet({
   onSaved,
   onHistory,
   onEdit,
+  onDelete,
 }: {
   cid: string;
   addressId: string;
@@ -32,11 +33,14 @@ export function RecordSheet({
   onHistory?: () => void;
   /** Abre a correção do número (casa) ou do apartamento. */
   onEdit?: () => void;
+  /** Exclui a casa (só aparece para quem pode: quem cadastrou ou administrador). */
+  onDelete?: () => Promise<unknown>;
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const [date, setDate] = useState(todayLocal());
   const [note, setNote] = useState('');
   const { busy, error, run } = useAction();
+  const del = useAction();
   const toast = useToast();
 
   async function save() {
@@ -85,6 +89,22 @@ export function RecordSheet({
         <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onHistory}>
           <Icon name="history" /> Ver histórico
         </button>
+      )}
+      {onDelete && (
+        <>
+          <ErrorAlert error={del.error} />
+          <button
+            className="btn danger secondary block"
+            style={{ marginTop: 8 }}
+            disabled={del.busy}
+            onClick={async () => {
+              if (!window.confirm(`Excluir ${title} e todo o histórico? Esta ação não pode ser desfeita.`)) return;
+              await del.run(onDelete);
+            }}
+          >
+            <Icon name="trash" /> Excluir {title.startsWith('Apto') ? 'apartamento' : 'casa'}
+          </button>
+        </>
       )}
     </Sheet>
   );

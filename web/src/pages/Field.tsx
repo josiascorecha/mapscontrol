@@ -9,7 +9,7 @@ import { Alert, ErrorAlert, Field, Loading, LoadError, Sheet, Stats, StatusChip,
 import { ACTION_LABEL, fmtDate, fmtDateTime, unitLabel } from '../util';
 
 interface BlockData {
-  block: { id: string; number: number; name: string | null; territory_id: string; territory_number: number; territory_name: string | null; googleMapsUrl: string | null };
+  block: { id: string; number: number; name: string | null; territory_id: string; territory_number: number; territory_name: string | null; googleMapsUrl: string | null; confirmed?: boolean; can_delete?: boolean };
   isAdmin: boolean;
   addresses: AddressRow[];
 }
@@ -25,6 +25,7 @@ function houseLine(a: AddressRow): string {
 export function BlockPage() {
   const { cid = '', bid = '' } = useParams();
   const nav = useNavigate();
+  const toast = useToast();
   const d = useLoad(() => api.get<BlockData>(`/congregations/${cid}/blocks/${bid}`), [cid, bid]);
   const [filter, setFilter] = useState<Filter>('all');
   const [adding, setAdding] = useState(false);
@@ -74,6 +75,9 @@ export function BlockPage() {
         <Loading />
       ) : (
         <>
+          {b?.confirmed === false && (
+            <Alert kind="warn">Quadra aguardando confirmação de um administrador. Você já pode cadastrar casas e registrar visitas.</Alert>
+          )}
           <div className="card"><Stats c={totals} /></div>
           <button className="btn block" style={{ marginTop: 14 }} onClick={() => setAdding(true)}>
             <Icon name="plus" /> Cadastrar casa ou prédio
@@ -85,6 +89,14 @@ export function BlockPage() {
             download={b ? `territorio-${b.territory_number}-quadra-${b.number}.pdf` : undefined}
           >
             <Icon name="copy" /> Gerar PDF da quadra
+          </a>
+          <a
+            className="btn secondary block"
+            style={{ marginTop: 10 }}
+            href={`/api/congregations/${cid}/blocks/${bid}/pdf-recorte`}
+            download={b ? `recorte-territorio-${b.territory_number}-quadra-${b.number}.pdf` : undefined}
+          >
+            <Icon name="scissors" /> Ficha para recorte
           </a>
           <div className="section-title"><h2>Endereços</h2></div>
           <div className="tabs" role="group" aria-label="Filtro">
@@ -161,6 +173,16 @@ export function BlockPage() {
           }}
           onHistory={() => nav(`/c/${cid}/e/${recording.id}`)}
           onEdit={() => nav(`/c/${cid}/e/${recording.id}?editar=1`)}
+          onDelete={
+            recording.can_delete
+              ? async () => {
+                  await api.del(`/congregations/${cid}/addresses/${recording.id}`);
+                  toast('Casa excluída');
+                  setRecording(null);
+                  d.reload();
+                }
+              : undefined
+          }
         />
       )}
     </Layout>
@@ -248,6 +270,7 @@ interface AddressData {
   units: Unit[];
   isAdmin: boolean;
   canEdit: boolean;
+  canDelete: boolean;
 }
 
 export function AddressPage() {
@@ -324,7 +347,7 @@ export function AddressPage() {
             setUnit(fresh.units.find((u) => u.id === unit.id) ?? null);
             d.reload();
           }} />
-          {d.data.isAdmin && (
+          {unit.can_delete && (
             <button
               className="btn danger secondary small"
               style={{ marginTop: 20 }}
@@ -392,7 +415,7 @@ export function AddressPage() {
             })
           )}
           <p className="small muted">Toque em um apartamento para registrar. No registro há o botão “Ver histórico”.</p>
-          {d.data.isAdmin && (
+          {d.data.canDelete && (
             <>
               <ErrorAlert error={del.error} />
               <button
@@ -412,7 +435,7 @@ export function AddressPage() {
           )}
         </>
       )}
-      {a?.kind === 'house' && d.data?.isAdmin && (
+      {a?.kind === 'house' && d.data?.canDelete && (
         <button
           className="btn danger secondary small"
           style={{ marginTop: 20 }}

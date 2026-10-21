@@ -31,13 +31,21 @@ O controle em papel tem vários problemas:
   - bloco ou torre opcional;
   - situação e histórico próprios de cada apartamento;
   - tela específica "Prédios e cartas", com a lista das cartas pendentes.
+- **PDF:**
+  - relatório da quadra, com situação, datas e observações;
+  - fichas para recorte no modelo da congregação: 4 por folha A4, com território, quadra, publicadores, número da casa e data. Saem da quadra ou do território inteiro.
 - **Mapa** (Leaflet + OpenStreetMap):
   - marcadores numerados por quadra;
   - "Abrir endereços" e "Abrir no Google Maps";
   - posição por link do Google Maps (resolvido com segurança no servidor), por toque no mapa ou por latitude/longitude.
 - **Perfis:**
   - **Publicador:** entra com um código individual, de uso único.
-  - **Administrador:** cria a própria congregação, sem aprovação de ninguém, e gerencia territórios, quadras, membros e códigos.
+    - Cadastra territórios, quadras e casas.
+    - Território e quadra que ele cadastra ficam "aguardando confirmação". Até o administrador confirmar, quem cadastrou pode excluir. Depois disso, o publicador só pode editar.
+    - Pode excluir as casas, prédios e apartamentos que ele mesmo cadastrou, se não houver visitas registradas por outras pessoas.
+  - **Administrador:** cria a própria congregação, sem aprovação de ninguém.
+    - Confirma o que os publicadores cadastraram.
+    - Gerencia territórios, quadras, membros e códigos.
   - **Administrador Geral:** faz o suporte a todas as congregações, com todas as ações auditadas. Esse perfil só é concedido por um script no servidor.
 - **Interface:** pensada para pessoas com pouca familiaridade com tecnologia:
   - botões de 52 px e uso com uma mão;

@@ -85,7 +85,8 @@ test('administrador e publicador: do cadastro ao registro de visita', async ({ b
   await p.getByLabel('Código de acesso').fill(code.toLowerCase());
   await p.getByRole('button', { name: 'Entrar na congregação' }).click();
   await expect(p.getByRole('heading', { name: 'Territórios' })).toBeVisible();
-  await expect(p.getByRole('button', { name: 'Novo' })).toHaveCount(0); // sem funções administrativas
+  // Publicador cadastra territórios (ficam aguardando confirmação), mas não gerencia membros e códigos
+  await expect(p.getByRole('button', { name: 'Novo' })).toBeVisible();
   await expect(p.getByRole('link', { name: 'Gerenciar' })).toHaveCount(0);
 
   await p.getByRole('link', { name: /Território 1/ }).click();

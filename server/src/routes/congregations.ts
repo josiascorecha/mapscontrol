@@ -5,6 +5,7 @@ import { withTx } from '../lib/db.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { googleMapsUrl, resolveMapsLink } from '../lib/maps.js';
 import { hit } from '../lib/rateLimit.js';
+import { assertCanDeleteBlock, assertCanDeleteTerritory, blockOwnDeletableSql, territoryOwnDeletableSql } from '../lib/ownership.js';
 import { hashAccessCode, normalizeAccessCode } from '../lib/security.js';
 import { requireAccess, requireUser } from '../lib/session.js';
 import { optionalText, parse, uuid } from '../lib/validate.js';
@@ -107,7 +108,16 @@ export async function congregationRoutes(app: FastifyInstance) {
     if (acc.viaGlobal) await audit(db, { actorId: acc.user.id, actorGlobal: true, congregationId: cid, action: 'global.view_congregation' });
     const c = await db.query('SELECT id, name, city, state, created_at FROM congregations WHERE id = $1', [cid]);
     const totals = await db.query(`SELECT ${STATUS_COUNTS} FROM target_status ts WHERE ts.congregation_id = $1`, [cid]);
-    return { congregation: c.rows[0], role: acc.role, isAdmin: acc.isAdmin, viaGlobal: acc.viaGlobal, totals: totals.rows[0] };
+    let pending: { territories: number; blocks: number } | undefined;
+    if (acc.isAdmin) {
+      const p = await db.query(
+        `SELECT (SELECT count(*) FROM territories WHERE congregation_id = $1 AND confirmed_at IS NULL)::int AS territories,
+                (SELECT count(*) FROM blocks WHERE congregation_id = $1 AND confirmed_at IS NULL)::int AS blocks`,
+        [cid],
+      );
+      pending = p.rows[0];
+    }
+    return { congregation: c.rows[0], role: acc.role, isAdmin: acc.isAdmin, viaGlobal: acc.viaGlobal, totals: totals.rows[0], pending };
   });
 
   app.patch('/congregations/:cid', async (req) => {
@@ -129,9 +139,10 @@ export async function congregationRoutes(app: FastifyInstance) {
   // ---------------- Territórios ----------------
   app.get('/congregations/:cid/territories', async (req) => {
     const { cid } = parse(P, req.params);
-    await requireAccess(db, req, cid, 'publisher');
+    const acc = await requireAccess(db, req, cid, 'publisher');
     const { rows } = await db.query(
-      `SELECT t.id, t.number, t.name, t.notes,
+      `SELECT t.id, t.number, t.name, t.notes, t.confirmed_at IS NOT NULL AS confirmed,
+              ($3 OR ${territoryOwnDeletableSql('t', '$2')}) AS can_delete,
               (SELECT count(*) FROM blocks b WHERE b.territory_id = t.id) AS blocks,
               s.pending, s.letter, s.contacted, s.total
          FROM territories t
@@ -144,7 +155,7 @@ export async function congregationRoutes(app: FastifyInstance) {
          ) s ON true
         WHERE t.congregation_id = $1
         ORDER BY t.number`,
-      [cid],
+      [cid, acc.user.id, acc.isAdmin],
     );
     return { territories: rows };
   });
@@ -155,25 +166,33 @@ export async function congregationRoutes(app: FastifyInstance) {
     notes: optionalText(1000),
   });
 
+  // Publicadores também cadastram; o que eles cadastram fica aguardando confirmação.
   app.post('/congregations/:cid/territories', async (req, reply) => {
     const { cid } = parse(P, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
+    const acc = await requireAccess(db, req, cid, 'publisher');
     const body = parse(territoryBody, req.body);
     const { rows } = await db.query(
-      `INSERT INTO territories(congregation_id, number, name, notes) VALUES ($1,$2,$3,$4) RETURNING id`,
-      [cid, body.number, body.name, body.notes],
+      `INSERT INTO territories(congregation_id, number, name, notes, created_by, confirmed_at, confirmed_by)
+       VALUES ($1,$2,$3,$4,$5, CASE WHEN $6 THEN now() END, CASE WHEN $6 THEN $5::uuid END) RETURNING id`,
+      [cid, body.number, body.name, body.notes, acc.user.id, acc.isAdmin],
     );
-    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'territory.create', entity: 'territory', entityId: rows[0].id, details: { number: body.number } });
-    return reply.status(201).send({ id: rows[0].id });
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'territory.create', entity: 'territory', entityId: rows[0].id, details: { number: body.number, pending: !acc.isAdmin } });
+    return reply.status(201).send({ id: rows[0].id, confirmed: acc.isAdmin });
   });
 
   app.get('/congregations/:cid/territories/:tid', async (req) => {
     const { cid, tid } = parse(PT, req.params);
     const acc = await requireAccess(db, req, cid, 'publisher');
-    const t = await db.query('SELECT id, number, name, notes FROM territories WHERE id=$1 AND congregation_id=$2', [tid, cid]);
+    const t = await db.query(
+      `SELECT t.id, t.number, t.name, t.notes, t.confirmed_at IS NOT NULL AS confirmed,
+              ($4 OR ${territoryOwnDeletableSql('t', '$3')}) AS can_delete
+         FROM territories t WHERE t.id=$1 AND t.congregation_id=$2`,
+      [tid, cid, acc.user.id, acc.isAdmin],
+    );
     if (!t.rows[0]) throw notFound();
     const { rows } = await db.query(
-      `SELECT b.id, b.number, b.name, b.maps_url, b.lat, b.lng,
+      `SELECT b.id, b.number, b.name, b.maps_url, b.lat, b.lng, b.confirmed_at IS NOT NULL AS confirmed,
+              ($4 OR ${blockOwnDeletableSql('b', '$3')}) AS can_delete,
               s.pending, s.letter, s.contacted, s.total,
               (SELECT count(*) FROM addresses a WHERE a.block_id = b.id AND a.kind = 'building') AS buildings
          FROM blocks b
@@ -182,7 +201,7 @@ export async function congregationRoutes(app: FastifyInstance) {
          ) s ON true
         WHERE b.territory_id = $1 AND b.congregation_id = $2
         ORDER BY b.number`,
-      [tid, cid],
+      [tid, cid, acc.user.id, acc.isAdmin],
     );
     return {
       territory: t.rows[0],
@@ -191,9 +210,10 @@ export async function congregationRoutes(app: FastifyInstance) {
     };
   });
 
+  // Qualquer membro corrige os dados (fica registrado na auditoria).
   app.patch('/congregations/:cid/territories/:tid', async (req) => {
     const { cid, tid } = parse(PT, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
+    const acc = await requireAccess(db, req, cid, 'publisher');
     const body = parse(territoryBody, req.body);
     const r = await db.query(`UPDATE territories SET number=$3, name=$4, notes=$5 WHERE id=$1 AND congregation_id=$2`, [
       tid, cid, body.number, body.name, body.notes,
@@ -205,32 +225,87 @@ export async function congregationRoutes(app: FastifyInstance) {
 
   app.delete('/congregations/:cid/territories/:tid', async (req) => {
     const { cid, tid } = parse(PT, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
-    const r = await db.query('DELETE FROM territories WHERE id=$1 AND congregation_id=$2 RETURNING number', [tid, cid]);
-    if (!r.rowCount) throw notFound();
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const r = await withTx(db, async (tx) => {
+      const exists = await tx.query('SELECT 1 FROM territories WHERE id=$1 AND congregation_id=$2 FOR UPDATE', [tid, cid]);
+      if (!exists.rowCount) throw notFound();
+      if (!acc.isAdmin) await assertCanDeleteTerritory(tx, tid, acc.user.id);
+      return tx.query('DELETE FROM territories WHERE id=$1 AND congregation_id=$2 RETURNING number', [tid, cid]);
+    });
     await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'territory.delete', entity: 'territory', entityId: tid, details: { number: r.rows[0].number } });
     return { ok: true };
+  });
+
+  // Confirmação pelo administrador: a partir daí publicadores só editam.
+  app.post('/congregations/:cid/territories/:tid/confirm', async (req) => {
+    const { cid, tid } = parse(PT, req.params);
+    const acc = await requireAccess(db, req, cid, 'admin');
+    const r = await db.query(
+      `UPDATE territories SET confirmed_at = COALESCE(confirmed_at, now()), confirmed_by = COALESCE(confirmed_by, $3)
+        WHERE id=$1 AND congregation_id=$2 RETURNING number`,
+      [tid, cid, acc.user.id],
+    );
+    if (!r.rowCount) throw notFound();
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'territory.confirm', entity: 'territory', entityId: tid, details: { number: r.rows[0].number } });
+    return { ok: true };
+  });
+
+  // O que está aguardando confirmação (para o administrador)
+  app.get('/congregations/:cid/pending', async (req) => {
+    const { cid } = parse(P, req.params);
+    await requireAccess(db, req, cid, 'admin');
+    const t = await db.query(
+      `SELECT t.id, t.number, t.name, t.created_at, u.name AS created_by_name
+         FROM territories t LEFT JOIN users u ON u.id = t.created_by
+        WHERE t.congregation_id = $1 AND t.confirmed_at IS NULL ORDER BY t.number`,
+      [cid],
+    );
+    const b = await db.query(
+      `SELECT b.id, b.number, b.name, b.created_at, b.territory_id, t.number AS territory_number, u.name AS created_by_name
+         FROM blocks b JOIN territories t ON t.id = b.territory_id LEFT JOIN users u ON u.id = b.created_by
+        WHERE b.congregation_id = $1 AND b.confirmed_at IS NULL ORDER BY t.number, b.number`,
+      [cid],
+    );
+    return { territories: t.rows, blocks: b.rows };
+  });
+
+  app.post('/congregations/:cid/pending/confirm-all', async (req) => {
+    const { cid } = parse(P, req.params);
+    const acc = await requireAccess(db, req, cid, 'admin');
+    const r = await withTx(db, async (tx) => {
+      const t = await tx.query(
+        `UPDATE territories SET confirmed_at = now(), confirmed_by = $2 WHERE congregation_id = $1 AND confirmed_at IS NULL`,
+        [cid, acc.user.id],
+      );
+      const b = await tx.query(
+        `UPDATE blocks SET confirmed_at = now(), confirmed_by = $2 WHERE congregation_id = $1 AND confirmed_at IS NULL`,
+        [cid, acc.user.id],
+      );
+      return { territories: t.rowCount ?? 0, blocks: b.rowCount ?? 0 };
+    });
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'pending.confirm_all', details: r });
+    return r;
   });
 
   // ---------------- Quadras ----------------
   app.post('/congregations/:cid/territories/:tid/blocks', async (req, reply) => {
     const { cid, tid } = parse(PT, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
+    const acc = await requireAccess(db, req, cid, 'publisher');
     const body = parse(blockBody, req.body);
     const t = await db.query('SELECT 1 FROM territories WHERE id=$1 AND congregation_id=$2', [tid, cid]);
     if (!t.rowCount) throw notFound();
     const { rows } = await db.query(
-      `INSERT INTO blocks(congregation_id, territory_id, number, name, maps_url, lat, lng)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [cid, tid, body.number, body.name, body.mapsUrl, body.lat ?? null, body.lng ?? null],
+      `INSERT INTO blocks(congregation_id, territory_id, number, name, maps_url, lat, lng, created_by, confirmed_at, confirmed_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $9 THEN now() END, CASE WHEN $9 THEN $8::uuid END) RETURNING id`,
+      [cid, tid, body.number, body.name, body.mapsUrl, body.lat ?? null, body.lng ?? null, acc.user.id, acc.isAdmin],
     );
-    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.create', entity: 'block', entityId: rows[0].id, details: { number: body.number } });
-    return reply.status(201).send({ id: rows[0].id });
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.create', entity: 'block', entityId: rows[0].id, details: { number: body.number, pending: !acc.isAdmin } });
+    return reply.status(201).send({ id: rows[0].id, confirmed: acc.isAdmin });
   });
 
   app.patch('/congregations/:cid/blocks/:bid', async (req) => {
     const { cid, bid } = parse(PB, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
+    const acc = await requireAccess(db, req, cid, 'publisher');
     const body = parse(blockBody, req.body);
     const r = await db.query(
       `UPDATE blocks SET number=$3, name=$4, maps_url=$5, lat=$6, lng=$7 WHERE id=$1 AND congregation_id=$2`,
@@ -243,17 +318,34 @@ export async function congregationRoutes(app: FastifyInstance) {
 
   app.delete('/congregations/:cid/blocks/:bid', async (req) => {
     const { cid, bid } = parse(PB, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
-    const r = await db.query('DELETE FROM blocks WHERE id=$1 AND congregation_id=$2 RETURNING number', [bid, cid]);
-    if (!r.rowCount) throw notFound();
+    const acc = await requireAccess(db, req, cid, 'publisher');
+    const r = await withTx(db, async (tx) => {
+      const exists = await tx.query('SELECT 1 FROM blocks WHERE id=$1 AND congregation_id=$2 FOR UPDATE', [bid, cid]);
+      if (!exists.rowCount) throw notFound();
+      if (!acc.isAdmin) await assertCanDeleteBlock(tx, bid, acc.user.id);
+      return tx.query('DELETE FROM blocks WHERE id=$1 AND congregation_id=$2 RETURNING number', [bid, cid]);
+    });
     await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.delete', entity: 'block', entityId: bid, details: { number: r.rows[0].number } });
     return { ok: true };
   });
 
-  // Resolve link do Google Maps em coordenadas (somente administradores, com limite de uso).
+  app.post('/congregations/:cid/blocks/:bid/confirm', async (req) => {
+    const { cid, bid } = parse(PB, req.params);
+    const acc = await requireAccess(db, req, cid, 'admin');
+    const r = await db.query(
+      `UPDATE blocks SET confirmed_at = COALESCE(confirmed_at, now()), confirmed_by = COALESCE(confirmed_by, $3)
+        WHERE id=$1 AND congregation_id=$2 RETURNING number`,
+      [bid, cid, acc.user.id],
+    );
+    if (!r.rowCount) throw notFound();
+    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.confirm', entity: 'block', entityId: bid, details: { number: r.rows[0].number } });
+    return { ok: true };
+  });
+
+  // Resolve link do Google Maps em coordenadas (qualquer membro, com limite de uso por pessoa).
   app.post('/congregations/:cid/maps/resolve', async (req) => {
     const { cid } = parse(P, req.params);
-    const acc = await requireAccess(db, req, cid, 'admin');
+    const acc = await requireAccess(db, req, cid, 'publisher');
     const body = parse(z.object({ url: z.string().trim().min(8).max(2000) }), req.body);
     await hit(db, `maps:${acc.user.id}`, 30, 3600);
     return resolveMapsLink(body.url, fetcher);

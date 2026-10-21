@@ -97,6 +97,7 @@ export function AdminPage() {
   const [tab, setTab] = useState<'codes' | 'members' | 'cong' | 'audit'>('codes');
   return (
     <Layout title="Gerenciar" subtitle={cong.data?.congregation.name} cid={cid} isAdmin viaGlobal={cong.data?.viaGlobal}>
+      <PendingCard cid={cid} onChanged={cong.reload} />
       <div className="tabs" role="group">
         {(
           [
@@ -114,6 +115,69 @@ export function AdminPage() {
       {tab === 'cong' && cong.data && <CongForm cid={cid} initial={cong.data.congregation} onSaved={cong.reload} />}
       {tab === 'audit' && <AuditList url={`/congregations/${cid}/audit`} />}
     </Layout>
+  );
+}
+
+interface PendingTerritory { id: string; number: number; name: string | null; created_at: string; created_by_name: string | null }
+interface PendingBlock extends PendingTerritory { territory_id: string; territory_number: number }
+
+/** Territórios e quadras cadastrados por publicadores, aguardando confirmação. */
+function PendingCard({ cid, onChanged }: { cid: string; onChanged: () => void }) {
+  const d = useLoad(() => api.get<{ territories: PendingTerritory[]; blocks: PendingBlock[] }>(`/congregations/${cid}/pending`), [cid]);
+  const act = useAction();
+  const toast = useToast();
+  if (!d.data || (!d.data.territories.length && !d.data.blocks.length)) return null;
+  const confirm = async (url: string, msg: string) => {
+    if (await act.run(() => api.post(url))) {
+      toast(msg);
+      d.reload();
+      onChanged();
+    }
+  };
+  const by = (x: PendingTerritory) => `por ${x.created_by_name ?? 'usuário removido'} em ${fmtDateTime(x.created_at)}`;
+  return (
+    <div className="card" style={{ borderColor: 'var(--alert-warn-border)' }}>
+      <h2>Aguardando confirmação</h2>
+      <p className="small muted" style={{ marginTop: -4 }}>
+        Cadastrados por publicadores. Confira e confirme; depois disso o publicador não pode mais excluir, só editar.
+      </p>
+      <ErrorAlert error={act.error} />
+      <ul className="list">
+        {d.data.territories.map((t) => (
+          <li key={t.id} className="pending-item">
+            <Link className="list-item" to={`/c/${cid}/t/${t.id}`}>
+              <span className="num">{t.number}</span>
+              <span className="main">
+                <strong>Território {t.number}{t.name ? ` — ${t.name}` : ''}</strong>
+                <span className="sub">{by(t)}</span>
+              </span>
+            </Link>
+            <button className="btn small" disabled={act.busy} onClick={() => confirm(`/congregations/${cid}/territories/${t.id}/confirm`, `Território ${t.number} confirmado`)}>
+              <Icon name="check" /> Confirmar
+            </button>
+          </li>
+        ))}
+        {d.data.blocks.map((b) => (
+          <li key={b.id} className="pending-item">
+            <Link className="list-item" to={`/c/${cid}/q/${b.id}`}>
+              <span className="num">{b.number}</span>
+              <span className="main">
+                <strong>Quadra {b.number}{b.name ? ` — ${b.name}` : ''} · Território {b.territory_number}</strong>
+                <span className="sub">{by(b)}</span>
+              </span>
+            </Link>
+            <button className="btn small" disabled={act.busy} onClick={() => confirm(`/congregations/${cid}/blocks/${b.id}/confirm`, `Quadra ${b.number} confirmada`)}>
+              <Icon name="check" /> Confirmar
+            </button>
+          </li>
+        ))}
+      </ul>
+      {d.data.territories.length + d.data.blocks.length > 1 && (
+        <button className="btn secondary block" style={{ marginTop: 10 }} disabled={act.busy} onClick={() => confirm(`/congregations/${cid}/pending/confirm-all`, 'Tudo confirmado')}>
+          <Icon name="check" /> Confirmar todos
+        </button>
+      )}
+    </div>
   );
 }
 

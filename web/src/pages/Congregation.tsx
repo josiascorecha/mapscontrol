@@ -14,6 +14,8 @@ export interface CongInfo {
   isAdmin: boolean;
   viaGlobal: boolean;
   totals: Counts;
+  /** Só para administradores: cadastros de publicadores aguardando confirmação. */
+  pending?: { territories: number; blocks: number };
 }
 
 export function useCong(cid: string) {
@@ -42,6 +44,20 @@ export function HomePage() {
       ) : !c ? (
         <Loading rows={2} />
       ) : (
+        <>
+        {c.isAdmin && c.pending && c.pending.territories + c.pending.blocks > 0 && (
+          <Link className="alert warn" to={`/c/${cid}/admin`} style={{ textDecoration: 'none' }}>
+            <Icon name="alert" />
+            <div>
+              <strong>Aguardando sua confirmação:</strong>{' '}
+              {[
+                c.pending.territories ? plural(c.pending.territories, 'território', 'territórios') : '',
+                c.pending.blocks ? plural(c.pending.blocks, 'quadra', 'quadras') : '',
+              ].filter(Boolean).join(' e ')}{' '}
+              cadastrados por publicadores. Toque para revisar.
+            </div>
+          </Link>
+        )}
         <div className="card">
           <h2>Resumo</h2>
           <Stats c={c.totals} />
@@ -49,11 +65,12 @@ export function HomePage() {
             {plural(c.totals.total, 'casa ou apartamento cadastrado', 'casas e apartamentos cadastrados')}.
           </p>
         </div>
+        </>
       )}
 
       <div className="section-title">
         <h2>Territórios</h2>
-        {c?.isAdmin && (
+        {c && (
           <button className="btn small" onClick={() => setAdding(true)}>
             <Icon name="plus" /> Novo
           </button>
@@ -66,7 +83,7 @@ export function HomePage() {
       ) : terr.data.territories.length === 0 ? (
         <div className="card center">
           <p>Nenhum território cadastrado ainda.</p>
-          {c?.isAdmin ? <p className="muted small">Toque em “Novo” para cadastrar o primeiro território.</p> : <p className="muted small">O administrador ainda vai cadastrar os territórios.</p>}
+          <p className="muted small">Toque em “Novo” para cadastrar o primeiro território.</p>
         </div>
       ) : (
         <ul className="list">
@@ -75,7 +92,9 @@ export function HomePage() {
               <Link className="list-item" to={`/c/${cid}/t/${t.id}`}>
                 <span className="num">{t.number}</span>
                 <span className="main">
-                  <strong>Território {t.number}{t.name ? ` — ${t.name}` : ''}</strong>
+                  <strong>
+                    Território {t.number}{t.name ? ` — ${t.name}` : ''} {t.confirmed === false && <span className="chip unconfirmed">aguardando confirmação</span>}
+                  </strong>
                   <span className="sub">
                     {plural(t.blocks ?? 0, 'quadra', 'quadras')} · {t.pending ?? 0} pendente(s) · {t.letter ?? 0} com carta · {t.contacted ?? 0} contato(s)
                   </span>
@@ -108,10 +127,10 @@ function TerritoryForm({ cid, initial, onClose, onSaved }: { cid: string; initia
     e.preventDefault();
     const body = { number: Number(f.number), name: f.name || null, notes: f.notes || null };
     const r = await run(() =>
-      initial ? api.patch(`/congregations/${cid}/territories/${initial.id}`, body).then(() => ({ id: initial.id })) : api.post<{ id: string }>(`/congregations/${cid}/territories`, body),
+      initial ? api.patch(`/congregations/${cid}/territories/${initial.id}`, body).then(() => ({ id: initial.id })) : api.post<{ id: string; confirmed: boolean }>(`/congregations/${cid}/territories`, body),
     );
     if (r) {
-      toast(initial ? 'Território atualizado' : 'Território criado');
+      toast(initial ? 'Território atualizado' : (r as { confirmed?: boolean }).confirmed === false ? 'Território criado — um administrador vai confirmar' : 'Território criado');
       onSaved(r.id);
     }
   }
@@ -148,6 +167,7 @@ export function TerritoryPage() {
   const [editBlock, setEditBlock] = useState<Block | 'new' | null>(null);
   const [editTerr, setEditTerr] = useState(false);
   const del = useAction();
+  const confirm = useAction();
   const t = d.data?.territory;
 
   return (
@@ -161,16 +181,14 @@ export function TerritoryPage() {
           <TerritoryMap blocks={d.data.blocks} onOpen={(b) => nav(`/c/${cid}/q/${b.id}`)} />
           {d.data.blocks.some((b) => b.lat == null) && (
             <p className="small muted" style={{ marginTop: 8 }}>
-              Algumas quadras ainda não têm posição no mapa{d.data.isAdmin ? ' — edite a quadra para posicionar.' : '.'}
+              Algumas quadras ainda não têm posição no mapa — edite a quadra para posicionar.
             </p>
           )}
           <div className="section-title">
             <h2>Quadras</h2>
-            {d.data.isAdmin && (
-              <button className="btn small" onClick={() => setEditBlock('new')}>
-                <Icon name="plus" /> Nova quadra
-              </button>
-            )}
+            <button className="btn small" onClick={() => setEditBlock('new')}>
+              <Icon name="plus" /> Nova quadra
+            </button>
           </div>
           {d.data.blocks.length === 0 ? (
             <div className="card center"><p>Nenhuma quadra cadastrada.</p></div>
@@ -181,7 +199,9 @@ export function TerritoryPage() {
                   <Link className="list-item" to={`/c/${cid}/q/${b.id}`}>
                     <span className="num">{b.number}</span>
                     <span className="main">
-                      <strong>Quadra {b.number}{b.name ? ` — ${b.name}` : ''}</strong>
+                      <strong>
+                        Quadra {b.number}{b.name ? ` — ${b.name}` : ''} {b.confirmed === false && <span className="chip unconfirmed">aguardando confirmação</span>}
+                      </strong>
                       <span className="sub">
                         {b.total ?? 0} endereço(s) · {b.pending ?? 0} pendente(s) · {b.letter ?? 0} com carta
                         {b.lat == null ? ' · sem posição' : ''}
@@ -189,21 +209,50 @@ export function TerritoryPage() {
                     </span>
                     <Icon name="chev" className="chev" />
                   </Link>
-                  {d.data!.isAdmin && (
-                    <button className="icon-btn" aria-label={`Editar quadra ${b.number}`} onClick={() => setEditBlock(b)} style={{ marginRight: 6 }}>
-                      <Icon name="edit" />
-                    </button>
-                  )}
+                  <button className="icon-btn" aria-label={`Editar quadra ${b.number}`} onClick={() => setEditBlock(b)} style={{ marginRight: 6 }}>
+                    <Icon name="edit" />
+                  </button>
                 </li>
               ))}
             </ul>
           )}
-          {d.data.isAdmin && (
-            <div className="card" style={{ marginTop: 22 }}>
-              <h3>Administração do território</h3>
-              <ErrorAlert error={del.error} />
-              <div className="row">
-                <button className="btn secondary small" onClick={() => setEditTerr(true)}><Icon name="edit" /> Editar dados</button>
+          {d.data.blocks.length > 0 && (
+            <a
+              className="btn secondary block"
+              style={{ marginTop: 14 }}
+              href={`/api/congregations/${cid}/territories/${tid}/pdf-recorte`}
+              download={`recorte-territorio-${t!.number}.pdf`}
+            >
+              <Icon name="scissors" /> Fichas para recorte (todas as quadras)
+            </a>
+          )}
+          <div className="card" style={{ marginTop: 22 }}>
+            <h3>Dados do território</h3>
+            {t!.confirmed === false && (
+              <Alert kind="warn">
+                {d.data.isAdmin
+                  ? 'Cadastrado por um publicador. Confira os dados e confirme.'
+                  : 'Aguardando confirmação de um administrador. Até lá, quem cadastrou pode excluir.'}
+              </Alert>
+            )}
+            <ErrorAlert error={del.error ?? confirm.error} />
+            <div className="row">
+              <button className="btn secondary small" onClick={() => setEditTerr(true)}><Icon name="edit" /> Editar dados</button>
+              {d.data.isAdmin && t!.confirmed === false && (
+                <button
+                  className="btn small"
+                  disabled={confirm.busy}
+                  onClick={async () => {
+                    if (await confirm.run(() => api.post(`/congregations/${cid}/territories/${tid}/confirm`))) {
+                      toast('Território confirmado');
+                      d.reload();
+                    }
+                  }}
+                >
+                  <Icon name="check" /> Confirmar território
+                </button>
+              )}
+              {t!.can_delete && (
                 <button
                   className="btn danger secondary small"
                   disabled={del.busy}
@@ -217,15 +266,16 @@ export function TerritoryPage() {
                 >
                   <Icon name="trash" /> Excluir território
                 </button>
-              </div>
+              )}
             </div>
-          )}
+          </div>
         </>
       )}
       {editBlock && d.data && (
         <BlockForm
           cid={cid}
           tid={tid}
+          isAdmin={d.data.isAdmin}
           block={editBlock === 'new' ? null : editBlock}
           others={d.data.blocks.filter((b) => editBlock === 'new' || b.id !== editBlock.id)}
           onClose={() => setEditBlock(null)}
@@ -258,7 +308,7 @@ const REASONS: Record<string, string> = {
   network_error: 'O servidor não conseguiu consultar o link agora. Posicione a quadra tocando no mapa.',
 };
 
-function BlockForm({ cid, tid, block, others, onClose, onSaved }: { cid: string; tid: string; block: Block | null; others: Block[]; onClose: () => void; onSaved: () => void }) {
+function BlockForm({ cid, tid, isAdmin, block, others, onClose, onSaved }: { cid: string; tid: string; isAdmin: boolean; block: Block | null; others: Block[]; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const nextNumber = Math.max(0, ...others.map((b) => b.number)) + 1;
   const [f, setF] = useState({ number: String(block?.number ?? nextNumber), name: block?.name ?? '', mapsUrl: block?.maps_url ?? '' });
@@ -268,6 +318,7 @@ function BlockForm({ cid, tid, block, others, onClose, onSaved }: { cid: string;
   const save = useAction();
   const resolve = useAction();
   const del = useAction();
+  const confirm = useAction();
 
   const updatePos = (p: { lat: number; lng: number } | null) => {
     setPos(p);
@@ -292,9 +343,13 @@ function BlockForm({ cid, tid, block, others, onClose, onSaved }: { cid: string;
       return save.setError(new ApiError(400, 'VALIDATION', 'Informe latitude e longitude válidas, ou deixe as duas em branco.'));
     }
     const body = { number: Number(f.number), name: f.name || null, mapsUrl: f.mapsUrl || null, lat, lng };
-    const ok = await save.run(() => (block ? api.patch(`/congregations/${cid}/blocks/${block.id}`, body) : api.post(`/congregations/${cid}/territories/${tid}/blocks`, body)));
+    const ok = await save.run(() =>
+      block
+        ? api.patch(`/congregations/${cid}/blocks/${block.id}`, body).then(() => ({ confirmed: true }))
+        : api.post<{ id: string; confirmed: boolean }>(`/congregations/${cid}/territories/${tid}/blocks`, body),
+    );
     if (ok) {
-      toast(block ? 'Quadra atualizada' : 'Quadra criada');
+      toast(block ? 'Quadra atualizada' : ok.confirmed === false ? 'Quadra criada — um administrador vai confirmar' : 'Quadra criada');
       onSaved();
     }
   }
@@ -334,7 +389,26 @@ function BlockForm({ cid, tid, block, others, onClose, onSaved }: { cid: string;
           Remover posição
         </button>
         <button className="btn block" disabled={save.busy}>{save.busy ? 'Salvando…' : 'Salvar quadra'}</button>
-        {block && (
+        {block && isAdmin && block.confirmed === false && (
+          <>
+            <ErrorAlert error={confirm.error} />
+            <button
+              type="button"
+              className="btn secondary block"
+              style={{ marginTop: 10 }}
+              disabled={confirm.busy}
+              onClick={async () => {
+                if (await confirm.run(() => api.post(`/congregations/${cid}/blocks/${block.id}/confirm`))) {
+                  toast('Quadra confirmada');
+                  onSaved();
+                }
+              }}
+            >
+              <Icon name="check" /> Confirmar quadra
+            </button>
+          </>
+        )}
+        {block && block.can_delete && (
           <>
             <ErrorAlert error={del.error} />
             <button
