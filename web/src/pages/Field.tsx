@@ -12,7 +12,7 @@ interface BlockData {
   block: {
     id: string; number: number; name: string | null; territory_id: string; territory_number: number; territory_name: string | null;
     googleMapsUrl: string | null; confirmed?: boolean; can_delete?: boolean;
-    card_publishers?: string | null; card_publishers_auto?: string;
+    card_publishers?: string | null; card_publishers_suggestion?: string;
   };
   isAdmin: boolean;
   addresses: AddressRow[];
@@ -97,7 +97,7 @@ export function BlockPage() {
           </a>
           <div className="card-names">
             <span className="small muted">Publicadores na ficha:</span>
-            <strong>{b?.card_publishers || b?.card_publishers_auto || 'em branco'}</strong>
+            <strong>{b?.card_publishers || 'em branco'}</strong>
             <button className="btn ghost small" onClick={() => setEditNames(true)}>
               <Icon name="edit" /> Editar nomes
             </button>
@@ -169,7 +169,7 @@ export function BlockPage() {
           cid={cid}
           bid={bid}
           saved={b.card_publishers ?? null}
-          auto={b.card_publishers_auto ?? ''}
+          suggestion={b.card_publishers_suggestion ?? ''}
           onClose={() => setEditNames(false)}
           onSaved={() => {
             setEditNames(false);
@@ -206,37 +206,33 @@ export function BlockPage() {
   );
 }
 
-/** Nomes do campo PUBLICADORES do PDF para recorte. Em branco (ou igual ao automático) = nomes de quem registrou visitas. */
-function CardNamesSheet({ cid, bid, saved, auto, onClose, onSaved }: { cid: string; bid: string; saved: string | null; auto: string; onClose: () => void; onSaved: () => void }) {
-  const [names, setNames] = useState(saved ?? auto);
+/** Nomes do campo PUBLICADORES do PDF para recorte. Sai exatamente o que for digitado; em branco, sai em branco. */
+function CardNamesSheet({ cid, bid, saved, suggestion, onClose, onSaved }: { cid: string; bid: string; saved: string | null; suggestion: string; onClose: () => void; onSaved: () => void }) {
+  const [names, setNames] = useState(saved ?? '');
   const { busy, error, run } = useAction();
   const toast = useToast();
-  async function save(value: string) {
-    const v = value.trim() === auto.trim() ? '' : value;
-    const ok = await run(() => api.patch(`/congregations/${cid}/blocks/${bid}/card-publishers`, { names: v }));
-    if (ok) {
-      toast(v.trim() ? 'Nomes salvos para a ficha' : 'A ficha volta a usar os nomes automáticos');
-      onSaved();
-    }
-  }
   return (
     <Sheet title="Publicadores na ficha" onClose={onClose}>
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          void save(names);
+          const ok = await run(() => api.patch(`/congregations/${cid}/blocks/${bid}/card-publishers`, { names }));
+          if (ok) {
+            toast(names.trim() ? 'Nomes salvos para a ficha' : 'O campo PUBLICADORES vai sair em branco');
+            onSaved();
+          }
         }}
       >
         <ErrorAlert error={error} />
-        <Field label="Nomes que saem no PDF para recorte" hint="Separe por vírgula. Em branco, a ficha usa os nomes de quem registrou visitas nesta quadra.">
+        <Field label="Nomes que saem no PDF para recorte" hint="Separe por vírgula. Em branco, o campo sai em branco na ficha.">
           <input className="input" autoFocus maxLength={200} value={names} onChange={(e) => setNames(e.target.value)} />
         </Field>
-        <button className="btn block" disabled={busy}>{busy ? 'Salvando…' : 'Salvar nomes'}</button>
-        {saved && (
-          <button type="button" className="btn ghost block" style={{ marginTop: 10 }} disabled={busy} onClick={() => void save('')}>
-            Usar nomes automáticos{auto ? ` (${auto})` : ''}
+        {suggestion && names.trim() !== suggestion && (
+          <button type="button" className="btn ghost small" style={{ marginBottom: 12 }} onClick={() => setNames(suggestion)}>
+            Preencher com quem registrou visitas: {suggestion}
           </button>
         )}
+        <button className="btn block" disabled={busy}>{busy ? 'Salvando…' : 'Salvar nomes'}</button>
       </form>
     </Sheet>
   );

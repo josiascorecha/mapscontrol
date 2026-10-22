@@ -31,7 +31,7 @@ O controle em papel tem vários problemas:
   - situação e histórico próprios de cada apartamento;
   - tela específica "Prédios e cartas", com a lista das cartas pendentes.
 - **PDF para recorte:** fichas no modelo da congregação, 4 por folha A4, com território, quadra, publicadores, número da casa e data. Saem da quadra ou do território inteiro.
-  - O campo PUBLICADORES traz os nomes de quem registrou visitas na quadra. Qualquer membro pode editar esses nomes na tela da quadra; em branco, volta para os automáticos.
+  - O campo PUBLICADORES sai com os nomes digitados na tela da quadra (qualquer membro pode editar). Sem nomes, sai em branco. A tela sugere quem registrou visitas, mas só usa se a pessoa escolher.
 - **Mapa** (Leaflet + OpenStreetMap):
   - marcadores numerados por quadra;
   - "Abrir endereços" e "Abrir no Google Maps";

@@ -1,7 +1,7 @@
 import type { Queryable } from './db.js';
 import type { CardBlock } from './cardsPdf.js';
 
-/** Dados das fichas para recorte: endereços na ordem de cadastro, data e quem trabalhou a quadra. */
+/** Dados das fichas para recorte: endereços na ordem de cadastro, data e os nomes digitados na quadra. */
 
 /** Nome curto para o campo PUBLICADORES: primeiro nome; com inicial do sobrenome se repetir. */
 export function shortNames(names: string[]): string[] {
@@ -13,7 +13,7 @@ export function shortNames(names: string[]): string[] {
   });
 }
 
-/** Nomes automáticos por quadra: quem registrou visitas (não anuladas), na ordem do primeiro registro. */
+/** Sugestão de nomes por quadra (só para preencher o campo na tela): quem registrou visitas, na ordem do primeiro registro. */
 export async function autoPublishers(db: Queryable, cid: string, blockIds: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>(blockIds.map((id) => [id, []]));
   if (!blockIds.length) return out;
@@ -30,10 +30,10 @@ export async function autoPublishers(db: Queryable, cid: string, blockIds: strin
   return out;
 }
 
-/** Texto do campo PUBLICADORES: o que foi editado na quadra ou, se vazio, os nomes automáticos. */
-export function cardPublishers(saved: string | null | undefined, auto: string[]): string[] {
+/** Campo PUBLICADORES da ficha: exatamente o que foi digitado na quadra; sem nomes, sai em branco. */
+export function cardPublishers(saved: string | null | undefined): string[] {
   const s = saved?.trim();
-  return s ? [s] : auto;
+  return s ? [s] : [];
 }
 
 export async function loadCardBlocks(db: Queryable, cid: string, blockIds: string[]): Promise<CardBlock[]> {
@@ -56,7 +56,6 @@ export async function loadCardBlocks(db: Queryable, cid: string, blockIds: strin
       WHERE a.block_id = ANY($1::uuid[]) AND a.congregation_id = $2 ORDER BY u.seq`,
     [blockIds, cid],
   );
-  const auto = await autoPublishers(db, cid, blocks.rows.map((b) => b.id));
   const dateOf = (r: { status: string | null; last_contact_on: string | null; last_letter_on: string | null }) =>
     r.status === 'contacted' ? r.last_contact_on : r.status === 'letter' ? r.last_letter_on : null;
   return blocks.rows.map((b) => {
@@ -72,7 +71,7 @@ export async function loadCardBlocks(db: Queryable, cid: string, blockIds: strin
     return {
       territoryNumber: b.territory_number,
       blockNumber: b.number,
-      publishers: cardPublishers(b.card_publishers, auto.get(b.id) ?? []),
+      publishers: cardPublishers(b.card_publishers),
       entries,
     };
   });

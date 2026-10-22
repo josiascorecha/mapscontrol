@@ -77,7 +77,7 @@ export async function fieldRoutes(app: FastifyInstance) {
     return {
       block: {
         ...block,
-        card_publishers_auto: auto.join(', '),
+        card_publishers_suggestion: auto.join(', '),
         googleMapsUrl: block.lat != null ? googleMapsUrl(block.lat, block.lng) : block.maps_url,
       },
       isAdmin: acc.isAdmin,
@@ -85,7 +85,7 @@ export async function fieldRoutes(app: FastifyInstance) {
     };
   });
 
-  // Nomes do campo PUBLICADORES da ficha para recorte (qualquer membro). Vazio = automático.
+  // Nomes do campo PUBLICADORES da ficha para recorte (qualquer membro). Vazio = sai em branco.
   app.patch('/congregations/:cid/blocks/:bid/card-publishers', async (req) => {
     const { cid, bid } = parse(PB, req.params);
     const acc = await requireAccess(db, req, cid, 'publisher');
@@ -101,7 +101,7 @@ export async function fieldRoutes(app: FastifyInstance) {
       action: 'block.card_publishers', entity: 'block', entityId: bid, details: { names },
     });
     const auto = (await autoPublishers(db, cid, [bid])).get(bid) ?? [];
-    return { card_publishers: r.rows[0].card_publishers, card_publishers_auto: auto.join(', ') };
+    return { card_publishers: r.rows[0].card_publishers, card_publishers_suggestion: auto.join(', ') };
   });
 
   // ---------------- Fichas para recorte (modelo da congregação) ----------------

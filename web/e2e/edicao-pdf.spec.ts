@@ -51,9 +51,10 @@ test('corrige o número de uma casa, edita os nomes da ficha e gera o PDF para r
   const file = await download.path();
   expect(readFileSync(file!).subarray(0, 5).toString()).toBe('%PDF-');
 
-  // Volta para os nomes automáticos (mantém os dados de demonstração como estavam)
+  // Apagando os nomes, o campo fica em branco (mantém os dados de demonstração como estavam)
   await page.getByRole('button', { name: 'Editar nomes' }).click();
-  await page.getByRole('button', { name: /Usar nomes automáticos/ }).click();
-  await expect(page.getByText('A ficha volta a usar os nomes automáticos')).toBeVisible();
-  await expect(page.locator('.card-names strong')).not.toHaveText(nomes);
+  await page.getByLabel('Nomes que saem no PDF para recorte').fill('');
+  await page.getByRole('button', { name: 'Salvar nomes' }).click();
+  await expect(page.getByText('O campo PUBLICADORES vai sair em branco')).toBeVisible();
+  await expect(page.locator('.card-names strong')).toHaveText('em branco');
 });

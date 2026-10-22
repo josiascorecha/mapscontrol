@@ -1,6 +1,6 @@
 // Fichas para recorte no modelo da congregação (4 por folha A4, 36 endereços por ficha).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loadCardBlocks, shortNames } from '../src/lib/cardsData.js';
+import { autoPublishers, loadCardBlocks, shortNames } from '../src/lib/cardsData.js';
 import { ENTRIES_PER_CARD, toCards } from '../src/lib/cardsPdf.js';
 import { addPublisher, daysAgo, newCongregation, startApp, type Ctx } from './helpers.js';
 
@@ -59,18 +59,20 @@ describe('montagem das fichas', () => {
       { label: '120/101', date: null },
       { label: '120/B-201', date: null },
     ]);
-    // Quem registrou visitas na quadra, na ordem da primeira visita
-    expect(card.publishers).toEqual(['Publicador', 'Admin']);
+    // Sem nomes digitados na quadra, o campo PUBLICADORES sai em branco
+    expect(card.publishers).toEqual([]);
+    // Quem registrou visitas fica só como sugestão na tela, na ordem da primeira visita
+    expect((await autoPublishers(ctx.db, A.cid, [A.bid])).get(A.bid)).toEqual(['Publicador', 'Admin']);
   });
 });
 
 describe('nomes do campo PUBLICADORES editáveis', () => {
   const names = (bid = A.bid) => url(`/blocks/${bid}/card-publishers`);
 
-  it('publicador edita; a ficha usa o texto salvo; vazio volta para os nomes automáticos', async () => {
+  it('publicador edita; a ficha usa o texto salvo; vazio sai em branco', async () => {
     const before = (await pub.c.get(url(`/blocks/${A.bid}`))).body.block;
     expect(before.card_publishers).toBeNull();
-    expect(before.card_publishers_auto).toBe('Publicador, Admin');
+    expect(before.card_publishers_suggestion).toBe('Publicador, Admin');
 
     const r = await pub.c.patch(names(), { names: '  Ana e  Bruno, irmã Carla ' });
     expect(r.status).toBe(200);
@@ -81,7 +83,7 @@ describe('nomes do campo PUBLICADORES editáveis', () => {
     expect(a.rows[0].details).toEqual({ names: 'Ana e Bruno, irmã Carla' });
 
     expect((await pub.c.patch(names(), { names: '' })).body.card_publishers).toBeNull();
-    expect((await loadCardBlocks(ctx.db, A.cid, [A.bid]))[0].publishers).toEqual(['Publicador', 'Admin']);
+    expect((await loadCardBlocks(ctx.db, A.cid, [A.bid]))[0].publishers).toEqual([]);
   });
 
   it('valida o texto e isola a congregação', async () => {
