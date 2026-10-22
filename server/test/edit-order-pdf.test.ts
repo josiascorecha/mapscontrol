@@ -1,4 +1,4 @@
-// Ordem de cadastro, correção de número (casa e apartamento) e PDF da quadra.
+// Ordem de cadastro e correção de número (casa e apartamento).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addPublisher, daysAgo, newCongregation, startApp, type Ctx } from './helpers.js';
 
@@ -80,22 +80,9 @@ describe('correção de número', () => {
   });
 });
 
-describe('PDF da quadra', () => {
-  it('gera PDF para membros e registra na auditoria', async () => {
+describe('PDF da quadra (relatório)', () => {
+  it('foi retirado: só existe o PDF para recorte', async () => {
     const r = await ctx.app.inject({ method: 'GET', url: `/api/congregations/${A.cid}/blocks/${A.bid}/pdf`, headers: { cookie: pub.c.cookie! } });
-    expect(r.statusCode).toBe(200);
-    expect(r.headers['content-type']).toBe('application/pdf');
-    expect(String(r.headers['content-disposition'])).toContain('territorio-1-quadra-1.pdf');
-    expect(r.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
-    expect(r.rawPayload.length).toBeGreaterThan(2000);
-    const a = await ctx.db.query(`SELECT 1 FROM audit_log WHERE action = 'block.pdf' AND entity_id = $1`, [A.bid]);
-    expect(a.rowCount).toBe(1);
-  });
-
-  it('quadra vazia também gera PDF; outra congregação não acessa', async () => {
-    const r = await ctx.app.inject({ method: 'GET', url: `/api/congregations/${B.cid}/blocks/${B.bid}/pdf`, headers: { cookie: B.admin.c.cookie! } });
-    expect(r.statusCode).toBe(200);
-    const x = await ctx.app.inject({ method: 'GET', url: `/api/congregations/${B.cid}/blocks/${B.bid}/pdf`, headers: { cookie: pub.c.cookie! } });
-    expect(x.statusCode).toBe(404);
+    expect(r.statusCode).toBe(404);
   });
 });

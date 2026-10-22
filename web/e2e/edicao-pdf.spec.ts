@@ -1,8 +1,8 @@
-// Correção de número e PDF da quadra (usa os dados fictícios do seed:demo).
+// Correção de número, nomes da ficha e PDF para recorte (usa os dados fictícios do seed:demo).
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-test('corrige o número de uma casa e gera o PDF da quadra', async ({ page }) => {
+test('corrige o número de uma casa, edita os nomes da ficha e gera o PDF para recorte', async ({ page }) => {
   test.skip(!process.env.DEMO_PASSWORD, 'requer dados de demonstração (seed:demo)');
   await page.route(/tile\.openstreetmap/, (r) => r.fulfill({ status: 204, body: '' }));
   await page.goto('/entrar');
@@ -34,9 +34,26 @@ test('corrige o número de uma casa e gera o PDF da quadra', async ({ page }) =>
   expect(after[0]).toBe(before[0]);
   expect(after[1]).not.toBe(second);
 
-  // PDF
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Gerar PDF da quadra' }).click()]);
-  expect(download.suggestedFilename()).toBe('territorio-2-quadra-1.pdf');
+  // O relatório antigo da quadra foi retirado
+  await expect(page.getByRole('link', { name: 'Gerar PDF da quadra' })).toHaveCount(0);
+
+  // Nomes do campo PUBLICADORES
+  const nomes = `Ana e Bruno ${Date.now() % 1000}`;
+  await page.getByRole('button', { name: 'Editar nomes' }).click();
+  await page.getByLabel('Nomes que saem no PDF para recorte').fill(nomes);
+  await page.getByRole('button', { name: 'Salvar nomes' }).click();
+  await expect(page.getByText('Nomes salvos para a ficha')).toBeVisible();
+  await expect(page.locator('.card-names strong')).toHaveText(nomes);
+
+  // PDF para recorte
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Gerar PDF para Recorte' }).click()]);
+  expect(download.suggestedFilename()).toBe('recorte-territorio-2-quadra-1.pdf');
   const file = await download.path();
   expect(readFileSync(file!).subarray(0, 5).toString()).toBe('%PDF-');
+
+  // Volta para os nomes automáticos (mantém os dados de demonstração como estavam)
+  await page.getByRole('button', { name: 'Editar nomes' }).click();
+  await page.getByRole('button', { name: /Usar nomes automáticos/ }).click();
+  await expect(page.getByText('A ficha volta a usar os nomes automáticos')).toBeVisible();
+  await expect(page.locator('.card-names strong')).not.toHaveText(nomes);
 });

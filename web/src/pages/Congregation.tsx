@@ -223,7 +223,7 @@ export function TerritoryPage() {
               href={`/api/congregations/${cid}/territories/${tid}/pdf-recorte`}
               download={`recorte-territorio-${t!.number}.pdf`}
             >
-              <Icon name="scissors" /> Fichas para recorte (todas as quadras)
+              <Icon name="scissors" /> Gerar PDF para Recorte (todas as quadras)
             </a>
           )}
           <div className="card" style={{ marginTop: 22 }}>

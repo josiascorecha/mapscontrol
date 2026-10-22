@@ -9,7 +9,11 @@ import { Alert, ErrorAlert, Field, Loading, LoadError, Sheet, Stats, StatusChip,
 import { ACTION_LABEL, fmtDate, fmtDateTime, unitLabel } from '../util';
 
 interface BlockData {
-  block: { id: string; number: number; name: string | null; territory_id: string; territory_number: number; territory_name: string | null; googleMapsUrl: string | null; confirmed?: boolean; can_delete?: boolean };
+  block: {
+    id: string; number: number; name: string | null; territory_id: string; territory_number: number; territory_name: string | null;
+    googleMapsUrl: string | null; confirmed?: boolean; can_delete?: boolean;
+    card_publishers?: string | null; card_publishers_auto?: string;
+  };
   isAdmin: boolean;
   addresses: AddressRow[];
 }
@@ -30,6 +34,7 @@ export function BlockPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [adding, setAdding] = useState(false);
   const [recording, setRecording] = useState<AddressRow | null>(null);
+  const [editNames, setEditNames] = useState(false);
   const b = d.data?.block;
 
   const list = (d.data?.addresses ?? []).filter((a) => {
@@ -85,19 +90,18 @@ export function BlockPage() {
           <a
             className="btn secondary block"
             style={{ marginTop: 10 }}
-            href={`/api/congregations/${cid}/blocks/${bid}/pdf`}
-            download={b ? `territorio-${b.territory_number}-quadra-${b.number}.pdf` : undefined}
-          >
-            <Icon name="copy" /> Gerar PDF da quadra
-          </a>
-          <a
-            className="btn secondary block"
-            style={{ marginTop: 10 }}
             href={`/api/congregations/${cid}/blocks/${bid}/pdf-recorte`}
             download={b ? `recorte-territorio-${b.territory_number}-quadra-${b.number}.pdf` : undefined}
           >
-            <Icon name="scissors" /> Ficha para recorte
+            <Icon name="scissors" /> Gerar PDF para Recorte
           </a>
+          <div className="card-names">
+            <span className="small muted">Publicadores na ficha:</span>
+            <strong>{b?.card_publishers || b?.card_publishers_auto || 'em branco'}</strong>
+            <button className="btn ghost small" onClick={() => setEditNames(true)}>
+              <Icon name="edit" /> Editar nomes
+            </button>
+          </div>
           <div className="section-title"><h2>Endereços</h2></div>
           <div className="tabs" role="group" aria-label="Filtro">
             {(
@@ -160,6 +164,19 @@ export function BlockPage() {
           }}
         />
       )}
+      {editNames && b && (
+        <CardNamesSheet
+          cid={cid}
+          bid={bid}
+          saved={b.card_publishers ?? null}
+          auto={b.card_publishers_auto ?? ''}
+          onClose={() => setEditNames(false)}
+          onSaved={() => {
+            setEditNames(false);
+            d.reload();
+          }}
+        />
+      )}
       {recording && (
         <RecordSheet
           cid={cid}
@@ -186,6 +203,42 @@ export function BlockPage() {
         />
       )}
     </Layout>
+  );
+}
+
+/** Nomes do campo PUBLICADORES do PDF para recorte. Em branco (ou igual ao automático) = nomes de quem registrou visitas. */
+function CardNamesSheet({ cid, bid, saved, auto, onClose, onSaved }: { cid: string; bid: string; saved: string | null; auto: string; onClose: () => void; onSaved: () => void }) {
+  const [names, setNames] = useState(saved ?? auto);
+  const { busy, error, run } = useAction();
+  const toast = useToast();
+  async function save(value: string) {
+    const v = value.trim() === auto.trim() ? '' : value;
+    const ok = await run(() => api.patch(`/congregations/${cid}/blocks/${bid}/card-publishers`, { names: v }));
+    if (ok) {
+      toast(v.trim() ? 'Nomes salvos para a ficha' : 'A ficha volta a usar os nomes automáticos');
+      onSaved();
+    }
+  }
+  return (
+    <Sheet title="Publicadores na ficha" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save(names);
+        }}
+      >
+        <ErrorAlert error={error} />
+        <Field label="Nomes que saem no PDF para recorte" hint="Separe por vírgula. Em branco, a ficha usa os nomes de quem registrou visitas nesta quadra.">
+          <input className="input" autoFocus maxLength={200} value={names} onChange={(e) => setNames(e.target.value)} />
+        </Field>
+        <button className="btn block" disabled={busy}>{busy ? 'Salvando…' : 'Salvar nomes'}</button>
+        {saved && (
+          <button type="button" className="btn ghost block" style={{ marginTop: 10 }} disabled={busy} onClick={() => void save('')}>
+            Usar nomes automáticos{auto ? ` (${auto})` : ''}
+          </button>
+        )}
+      </form>
+    </Sheet>
   );
 }
 

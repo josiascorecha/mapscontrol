@@ -31,16 +31,19 @@ Fichas para recorte: `server/test/cards-pdf.test.ts`. Cobre:
 - ordem de cadastro;
 - data do contato ou da carta;
 - apartamentos como "120/101";
-- nomes no campo PUBLICADORES;
-- 4 fichas por folha.
+- nomes no campo PUBLICADORES, automáticos ou editados na quadra (texto validado, sem telefone, e isolado por congregação);
+- 4 fichas por folha;
+- o relatório antigo "PDF da quadra" foi retirado (a rota responde 404).
+
+A tela da quadra (`web/e2e/edicao-pdf.spec.ts`) edita os nomes, baixa o PDF para recorte e volta aos nomes automáticos.
 
 Mudança de domínio: `server/test/domain-change.test.ts` (endereço antigo aceito durante a transição, outras origens recusadas, links de e-mail sempre no endereço novo, validação da configuração) e `web/e2e/mudanca-endereco.spec.ts` (aviso só no endereço antigo, botão com o mesmo caminho, sem convite para instalar no endereço antigo). O script `deploy/scripts/mudar-dominio.sh` foi exercitado com Nginx real e Certbot simulado (adicionar → redirecionar → desfazer).
 
 Outros testes: autenticação (confirmação obrigatória, anti-enumeração, Argon2id, recuperação de senha que encerra sessões, logout no servidor, cookie HttpOnly/SameSite), exclusão de conta com anonimização, CSRF por Origin, resolução segura de links do Maps (domínios, IPs internos, limite de redirecionamentos, "não inventa coordenadas").
 
-## Última execução (ambiente de desenvolvimento, 21/10/2026)
+## Última execução (ambiente de desenvolvimento, 22/10/2026)
 
-- Servidor: **97/97 testes** passando (12 arquivos), PostgreSQL 16.
+- Servidor: **98/98 testes** passando (12 arquivos), PostgreSQL 16.
 - E2E: **17/17** em celular e computador. Um teste de mapa só roda no computador.
 - `check-public.sh`: nenhum dado privado encontrado.
 - Backup/restauração: verificado em 26/09/2026 (80 registros, 32 apartamentos, 2 usuários restaurados idênticos).

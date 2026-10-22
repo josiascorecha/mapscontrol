@@ -47,7 +47,7 @@ test('publicador cadastra, exclui o que é seu e, depois da confirmação, só e
   await pub.getByRole('button', { name: 'Excluir casa' }).click();
   await expect(pub.getByText('Casa excluída')).toBeVisible();
   await expect(pub.getByRole('button', { name: 'Casa 31: registrar visita' })).toHaveCount(0);
-  await expect(pub.getByRole('link', { name: 'Ficha para recorte' })).toBeVisible();
+  await expect(pub.getByRole('link', { name: 'Gerar PDF para Recorte' })).toBeVisible();
   await pub.getByRole('button', { name: 'Voltar' }).click();
   const territoryUrl = pub.url();
 

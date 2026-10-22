@@ -3,9 +3,8 @@ import { z } from 'zod';
 import { audit } from '../lib/audit.js';
 import { withTx } from '../lib/db.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
-import { buildBlockPdf, fmtDate, type PdfRow } from '../lib/blockPdf.js';
 import { buildCardsPdf } from '../lib/cardsPdf.js';
-import { loadCardBlocks } from '../lib/cardsData.js';
+import { autoPublishers, loadCardBlocks } from '../lib/cardsData.js';
 import { googleMapsUrl } from '../lib/maps.js';
 import { addressOwnDeletableSql, assertCanDeleteAddress, assertCanDeleteUnit, blockOwnDeletableSql, unitOwnDeletableSql } from '../lib/ownership.js';
 import { requireAccess } from '../lib/session.js';
@@ -52,7 +51,8 @@ export async function fieldRoutes(app: FastifyInstance) {
     const acc = await requireAccess(db, req, cid, 'publisher');
     const b = await db.query(
       `SELECT b.id, b.number, b.name, b.maps_url, b.lat, b.lng, b.territory_id, t.number AS territory_number, t.name AS territory_name,
-              b.confirmed_at IS NOT NULL AS confirmed, ($4 OR ${blockOwnDeletableSql('b', '$3')}) AS can_delete
+              b.confirmed_at IS NOT NULL AS confirmed, ($4 OR ${blockOwnDeletableSql('b', '$3')}) AS can_delete,
+              b.card_publishers
          FROM blocks b JOIN territories t ON t.id = b.territory_id
         WHERE b.id = $1 AND b.congregation_id = $2`,
       [bid, cid, acc.user.id, acc.isAdmin],
@@ -73,107 +73,35 @@ export async function fieldRoutes(app: FastifyInstance) {
       [bid, cid, acc.user.id, acc.isAdmin],
     );
     const block = b.rows[0];
+    const auto = (await autoPublishers(db, cid, [bid])).get(bid) ?? [];
     return {
-      block: { ...block, googleMapsUrl: block.lat != null ? googleMapsUrl(block.lat, block.lng) : block.maps_url },
+      block: {
+        ...block,
+        card_publishers_auto: auto.join(', '),
+        googleMapsUrl: block.lat != null ? googleMapsUrl(block.lat, block.lng) : block.maps_url,
+      },
       isAdmin: acc.isAdmin,
       addresses: rows,
     };
   });
 
-  // PDF da quadra (ordem de cadastro, situação, datas e observações)
-  app.get('/congregations/:cid/blocks/:bid/pdf', async (req, reply) => {
+  // Nomes do campo PUBLICADORES da ficha para recorte (qualquer membro). Vazio = automático.
+  app.patch('/congregations/:cid/blocks/:bid/card-publishers', async (req) => {
     const { cid, bid } = parse(PB, req.params);
     const acc = await requireAccess(db, req, cid, 'publisher');
-    const b = await db.query(
-      `SELECT b.number, b.name, b.maps_url, b.lat, b.lng, t.number AS territory_number, t.name AS territory_name, c.name AS congregation
-         FROM blocks b JOIN territories t ON t.id = b.territory_id JOIN congregations c ON c.id = b.congregation_id
-        WHERE b.id = $1 AND b.congregation_id = $2`,
-      [bid, cid],
+    const body = parse(z.object({ names: operationalNote(200) }), req.body ?? {});
+    const names = body.names ? body.names.replace(/\s+/g, ' ').trim() || null : null;
+    const r = await db.query(
+      `UPDATE blocks SET card_publishers = $3 WHERE id = $1 AND congregation_id = $2 RETURNING card_publishers`,
+      [bid, cid, names],
     );
-    const blk = b.rows[0];
-    if (!blk) throw notFound();
-    const addrs = await db.query(
-      `SELECT a.id, a.kind, a.number, a.street, a.name, a.notes,
-              hs.status, hs.last_contact_on, hs.last_letter_on, hs.last_absent_on
-         FROM addresses a
-         LEFT JOIN target_status hs ON hs.address_id = a.id AND hs.unit_id IS NULL AND a.kind = 'house'
-        WHERE a.block_id = $1 AND a.congregation_id = $2
-        ORDER BY a.seq`,
-      [bid, cid],
-    );
-    const units = await db.query(
-      `SELECT u.id, u.address_id, u.tower, u.identifier, ts.status, ts.last_contact_on, ts.last_letter_on, ts.last_absent_on
-         FROM units u JOIN addresses a ON a.id = u.address_id JOIN target_status ts ON ts.unit_id = u.id
-        WHERE a.block_id = $1 AND a.congregation_id = $2
-        ORDER BY u.seq`,
-      [bid, cid],
-    );
-    const notes = await db.query(
-      `SELECT v.address_id, v.unit_id, v.occurred_on, v.note
-         FROM visit_records v JOIN addresses a ON a.id = v.address_id
-        WHERE a.block_id = $1 AND v.congregation_id = $2 AND v.voided_at IS NULL AND v.note IS NOT NULL
-        ORDER BY v.occurred_on, v.created_at`,
-      [bid, cid],
-    );
-    const noteMap = new Map<string, string[]>();
-    for (const n of notes.rows) {
-      const k = `${n.address_id}|${n.unit_id ?? ''}`;
-      if (!noteMap.has(k)) noteMap.set(k, []);
-      noteMap.get(k)!.push(`${fmtDate(n.occurred_on).slice(0, 5)}: ${n.note}`);
-    }
-    const rows: PdfRow[] = [];
-    const totals = { pending: 0, letter: 0, contacted: 0, total: 0 };
-    const count = (st: 'pending' | 'letter' | 'contacted') => {
-      totals[st]++;
-      totals.total++;
-    };
-    for (const a of addrs.rows) {
-      const own = noteMap.get(`${a.id}|`) ?? [];
-      const base = a.notes ? [a.notes, ...own] : own;
-      if (a.kind === 'house') {
-        count(a.status);
-        rows.push({
-          kind: 'house', label: a.number, status: a.status,
-          lastContactOn: a.last_contact_on, lastLetterOn: a.last_letter_on, lastAbsentOn: a.last_absent_on,
-          notes: a.street ? [a.street, ...base] : base,
-        });
-      } else {
-        const us = units.rows.filter((u) => u.address_id === a.id);
-        const c = { pending: 0, letter: 0, contacted: 0 } as Record<string, number>;
-        us.forEach((u) => c[u.status]++);
-        rows.push({
-          kind: 'building', label: `Prédio ${a.number}`, status: null, lastContactOn: null, lastLetterOn: null, lastAbsentOn: null,
-          notes: [a.name, a.street, ...base].filter(Boolean) as string[],
-          summary: `${us.length} apto(s): ${c.pending} pend. · ${c.letter} carta · ${c.contacted} contato`,
-        });
-        for (const u of us) {
-          count(u.status);
-          rows.push({
-            kind: 'unit', label: u.tower ? `${u.tower} · ${u.identifier}` : `Apto ${u.identifier}`, status: u.status,
-            lastContactOn: u.last_contact_on, lastLetterOn: u.last_letter_on, lastAbsentOn: u.last_absent_on,
-            notes: noteMap.get(`${a.id}|${u.id}`) ?? [],
-          });
-        }
-      }
-    }
-    const pdf = await buildBlockPdf({
-      congregation: blk.congregation,
-      territoryNumber: blk.territory_number,
-      territoryName: blk.territory_name,
-      blockNumber: blk.number,
-      blockName: blk.name,
-      mapsUrl: blk.lat != null ? googleMapsUrl(blk.lat, blk.lng) : blk.maps_url,
-      generatedBy: acc.user.name,
-      generatedAt: new Date(),
-      rows,
-      totals,
+    if (!r.rowCount) throw notFound();
+    await audit(db, {
+      actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid,
+      action: 'block.card_publishers', entity: 'block', entityId: bid, details: { names },
     });
-    await audit(db, { actorId: acc.user.id, actorGlobal: acc.viaGlobal, congregationId: cid, action: 'block.pdf', entity: 'block', entityId: bid });
-    const filename = `territorio-${blk.territory_number}-quadra-${blk.number}.pdf`;
-    return reply
-      .header('content-type', 'application/pdf')
-      .header('content-disposition', `attachment; filename="${filename}"`)
-      .send(pdf);
+    const auto = (await autoPublishers(db, cid, [bid])).get(bid) ?? [];
+    return { card_publishers: r.rows[0].card_publishers, card_publishers_auto: auto.join(', ') };
   });
 
   // ---------------- Fichas para recorte (modelo da congregação) ----------------

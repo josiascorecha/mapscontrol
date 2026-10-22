@@ -64,6 +64,36 @@ describe('montagem das fichas', () => {
   });
 });
 
+describe('nomes do campo PUBLICADORES editáveis', () => {
+  const names = (bid = A.bid) => url(`/blocks/${bid}/card-publishers`);
+
+  it('publicador edita; a ficha usa o texto salvo; vazio volta para os nomes automáticos', async () => {
+    const before = (await pub.c.get(url(`/blocks/${A.bid}`))).body.block;
+    expect(before.card_publishers).toBeNull();
+    expect(before.card_publishers_auto).toBe('Publicador, Admin');
+
+    const r = await pub.c.patch(names(), { names: '  Ana e  Bruno, irmã Carla ' });
+    expect(r.status).toBe(200);
+    expect(r.body.card_publishers).toBe('Ana e Bruno, irmã Carla');
+    expect((await pub.c.get(url(`/blocks/${A.bid}`))).body.block.card_publishers).toBe('Ana e Bruno, irmã Carla');
+    expect((await loadCardBlocks(ctx.db, A.cid, [A.bid]))[0].publishers).toEqual(['Ana e Bruno, irmã Carla']);
+    const a = await ctx.db.query(`SELECT details FROM audit_log WHERE action = 'block.card_publishers' AND entity_id = $1`, [A.bid]);
+    expect(a.rows[0].details).toEqual({ names: 'Ana e Bruno, irmã Carla' });
+
+    expect((await pub.c.patch(names(), { names: '' })).body.card_publishers).toBeNull();
+    expect((await loadCardBlocks(ctx.db, A.cid, [A.bid]))[0].publishers).toEqual(['Publicador', 'Admin']);
+  });
+
+  it('valida o texto e isola a congregação', async () => {
+    expect((await pub.c.patch(names(), { names: 'x'.repeat(201) })).status).toBe(400);
+    expect((await pub.c.patch(names(), { names: 'Ana (49) 99999-1234' })).status).toBe(400); // sem telefone
+    expect((await pub.c.patch(url(`/blocks/${B.bid}/card-publishers`), { names: 'Ana' })).status).toBe(404);
+    expect((await pub.c.patch(`/api/congregations/${B.cid}/blocks/${B.bid}/card-publishers`, { names: 'Ana' })).status).toBe(404); // não é membro
+    const b = await ctx.db.query('SELECT card_publishers FROM blocks WHERE id = $1', [B.bid]);
+    expect(b.rows[0].card_publishers).toBeNull();
+  });
+});
+
 describe('rotas', () => {
   it('ficha da quadra: PDF de uma folha, para qualquer membro, com auditoria', async () => {
     const r = await get(url(`/blocks/${A.bid}/pdf-recorte`));

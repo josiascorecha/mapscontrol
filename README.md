@@ -25,15 +25,13 @@ O controle em papel tem vários problemas:
 - **Histórico imutável:** cada registro guarda ação, data, autor e observação. Um registro errado é *anulado* (continua visível, riscado), nunca apagado.
 - **Ordem de cadastro:** casas, prédios e apartamentos aparecem na ordem em que foram cadastrados, que é a ordem do percurso na quadra, e não em ordem alfanumérica.
 - **Correção de número:** quem cadastrou, ou um administrador, corrige o número da casa, do prédio ou do apartamento. O histórico e a posição na lista são mantidos, e a alteração fica na auditoria.
-- **PDF da quadra:** gera um PDF para imprimir ou compartilhar, com resumo, situação, datas e observações de cada endereço, e uma coluna em branco para anotar à mão no campo.
 - **Prédios:**
   - cadastro de apartamentos em lote (por andares ou por lista), com revisão antes de salvar;
   - bloco ou torre opcional;
   - situação e histórico próprios de cada apartamento;
   - tela específica "Prédios e cartas", com a lista das cartas pendentes.
-- **PDF:**
-  - relatório da quadra, com situação, datas e observações;
-  - fichas para recorte no modelo da congregação: 4 por folha A4, com território, quadra, publicadores, número da casa e data. Saem da quadra ou do território inteiro.
+- **PDF para recorte:** fichas no modelo da congregação, 4 por folha A4, com território, quadra, publicadores, número da casa e data. Saem da quadra ou do território inteiro.
+  - O campo PUBLICADORES traz os nomes de quem registrou visitas na quadra. Qualquer membro pode editar esses nomes na tela da quadra; em branco, volta para os automáticos.
 - **Mapa** (Leaflet + OpenStreetMap):
   - marcadores numerados por quadra;
   - "Abrir endereços" e "Abrir no Google Maps";
@@ -118,7 +116,7 @@ Em desenvolvimento, os e-mails de confirmação são gravados como arquivos em `
 
 ```bash
 createdb -O mapscontrol mapscontrol_test
-cd server && TEST_DATABASE_URL=postgres://mapscontrol:SUA_SENHA@localhost:5432/mapscontrol_test npm test   # 56 testes de integração
+cd server && TEST_DATABASE_URL=postgres://mapscontrol:SUA_SENHA@localhost:5432/mapscontrol_test npm test   # testes de integração
 cd web && npm run build && npx playwright test          # E2E celular + computador (servidor rodando com STATIC_DIR=../web/dist)
 PGHOST=localhost PGUSER=mapscontrol PGPASSWORD=... scripts/test-backup-restore.sh
 scripts/check-public.sh                                  # nenhum dado real/segredo no repositório

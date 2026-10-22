@@ -364,3 +364,8 @@ table.simple td, table.simple th { text-align: left; padding: 8px 6px; border-bo
 
 .install-card { border-color: var(--soft-border); background: var(--soft); }
 .install-logo svg { width: 44px; height: 44px; display: block; }
+
+/* Nomes do campo PUBLICADORES do PDF para recorte (tela da quadra) */
+.card-names { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; padding: 0 4px; }
+.card-names strong { overflow-wrap: anywhere; }
+.card-names .btn { margin-left: auto; }

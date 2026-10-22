@@ -13,10 +13,33 @@ export function shortNames(names: string[]): string[] {
   });
 }
 
+/** Nomes automáticos por quadra: quem registrou visitas (não anuladas), na ordem do primeiro registro. */
+export async function autoPublishers(db: Queryable, cid: string, blockIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>(blockIds.map((id) => [id, []]));
+  if (!blockIds.length) return out;
+  const pubs = await db.query(
+    `SELECT a.block_id, u.name, min(v.created_at) AS first_at
+       FROM visit_records v JOIN addresses a ON a.id = v.address_id JOIN users u ON u.id = v.author_id
+      WHERE a.block_id = ANY($1::uuid[]) AND v.congregation_id = $2 AND v.voided_at IS NULL AND u.deleted_at IS NULL
+      GROUP BY a.block_id, u.id, u.name ORDER BY first_at`,
+    [blockIds, cid],
+  );
+  for (const id of blockIds) {
+    out.set(id, shortNames(pubs.rows.filter((p) => p.block_id === id).map((p) => p.name as string)));
+  }
+  return out;
+}
+
+/** Texto do campo PUBLICADORES: o que foi editado na quadra ou, se vazio, os nomes automáticos. */
+export function cardPublishers(saved: string | null | undefined, auto: string[]): string[] {
+  const s = saved?.trim();
+  return s ? [s] : auto;
+}
+
 export async function loadCardBlocks(db: Queryable, cid: string, blockIds: string[]): Promise<CardBlock[]> {
   if (!blockIds.length) return [];
   const blocks = await db.query(
-    `SELECT b.id, b.number, t.number AS territory_number FROM blocks b JOIN territories t ON t.id = b.territory_id
+    `SELECT b.id, b.number, b.card_publishers, t.number AS territory_number FROM blocks b JOIN territories t ON t.id = b.territory_id
       WHERE b.id = ANY($1::uuid[]) AND b.congregation_id = $2 ORDER BY t.number, b.number`,
     [blockIds, cid],
   );
@@ -33,13 +56,7 @@ export async function loadCardBlocks(db: Queryable, cid: string, blockIds: strin
       WHERE a.block_id = ANY($1::uuid[]) AND a.congregation_id = $2 ORDER BY u.seq`,
     [blockIds, cid],
   );
-  const pubs = await db.query(
-    `SELECT a.block_id, u.name, min(v.created_at) AS first_at
-       FROM visit_records v JOIN addresses a ON a.id = v.address_id JOIN users u ON u.id = v.author_id
-      WHERE a.block_id = ANY($1::uuid[]) AND v.congregation_id = $2 AND v.voided_at IS NULL AND u.deleted_at IS NULL
-      GROUP BY a.block_id, u.id, u.name ORDER BY first_at`,
-    [blockIds, cid],
-  );
+  const auto = await autoPublishers(db, cid, blocks.rows.map((b) => b.id));
   const dateOf = (r: { status: string | null; last_contact_on: string | null; last_letter_on: string | null }) =>
     r.status === 'contacted' ? r.last_contact_on : r.status === 'letter' ? r.last_letter_on : null;
   return blocks.rows.map((b) => {
@@ -52,8 +69,12 @@ export async function loadCardBlocks(db: Queryable, cid: string, blockIds: strin
         }
       }
     }
-    const names = pubs.rows.filter((p) => p.block_id === b.id).map((p) => p.name as string);
-    return { territoryNumber: b.territory_number, blockNumber: b.number, publishers: shortNames(names), entries };
+    return {
+      territoryNumber: b.territory_number,
+      blockNumber: b.number,
+      publishers: cardPublishers(b.card_publishers, auto.get(b.id) ?? []),
+      entries,
+    };
   });
 }
 
